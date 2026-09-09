@@ -86,4 +86,19 @@ Verify it exists:
 
 Type `\q` to exit the psql shell.
 
+### 6. Create the Django project
+
+```bash
+django-admin startproject kellwell_app .
+```
+
+The trailing `.` places project files at the repo root instead of a nested subfolder.
+
+Verify it works:
+```bash
+python manage.py runserver​
+```
+Visit `http://127.0.0.1:8000/` — you should see Django's default success page.
+(Ignore the "unapplied migrations" warning for now — this will be resolved once PostgreSQL is connected.)
+
 *(This section will be replaced with `pip install -r requirements.txt` once we generate that file.)*
