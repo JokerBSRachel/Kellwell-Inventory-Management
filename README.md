@@ -62,4 +62,28 @@ Verify the install:
 psql --version​
 ```
 
+### 5. Create the PostgreSQL database
+This is a local version of the database for testing purposes.
+
+Log into PostgreSQL:
+​
+```bash
+psql -U postgres
+```
+(Enter the password you set during installation)
+
+Create the project database:
+​
+```sql
+CREATE DATABASE kellwell_inventory;
+```
+
+Verify it exists:
+​
+```sql
+\l
+```
+
+Type `\q` to exit the psql shell.
+
 *(This section will be replaced with `pip install -r requirements.txt` once we generate that file.)*
