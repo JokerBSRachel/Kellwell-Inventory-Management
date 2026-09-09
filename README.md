@@ -44,4 +44,22 @@ You should see `(venv)` appear at the beginning of your terminal prompt once act
 pip install django
 ```
 
+### 4. Install PostgreSQL
+
+Download and install from [postgresql.org](https://www.postgresql.org/download/windows/).
+During installation:
+- Set a password for the default `postgres` superuser (you'll need this later)
+- Keep the default port (`5432`)
+- pgAdmin is included and fine to leave checked; Stack Builder can be skipped/cancelled
+
+**Windows only:** After installing, add PostgreSQL's `bin` folder to your system PATH
+(e.g. `C:\Program Files\PostgreSQL\17\bin`), then fully restart VS Code (not just the terminal)
+for the change to take effect.
+
+Verify the install:
+​
+```bash
+psql --version​
+```
+
 *(This section will be replaced with `pip install -r requirements.txt` once we generate that file.)*
