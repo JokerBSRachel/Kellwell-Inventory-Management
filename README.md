@@ -101,4 +101,34 @@ python manage.py runserver​
 Visit `http://127.0.0.1:8000/` — you should see Django's default success page.
 (Ignore the "unapplied migrations" warning for now — this will be resolved once PostgreSQL is connected.)
 
+### 7. Configure Django to use PostgreSQL
+
+Install additional dependencies:
+​
+```bash
+python -m pip install psycopg2-binary python-decouple
+```
+
+Create a `.env` file in the project root (this file is git-ignored and must never be committed):
+​
+```
+DB_NAME=kellwell_inventory
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+A `.env.example` file is included in the repo as a template — copy it to `.env` and fill in your actual password.
+
+**Note:** On Windows, always use `python -m pip install ...` instead of a bare `pip install ...` —
+this avoids ambiguity when multiple Python installations exist on the PATH.
+
+Apply Django's built-in migrations to confirm the connection works:
+​
+```bash
+python manage.py migrate
+```
+You should see a series of `Applying ... OK` lines.
+
 *(This section will be replaced with `pip install -r requirements.txt` once we generate that file.)*
