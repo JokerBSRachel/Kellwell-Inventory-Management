@@ -30,11 +30,12 @@ class County(models.Model):
     county_name = models.CharField(max_length=100)
     # Preserve historical records if a state, region, or manager is deactivated
     state = models.ForeignKey(State, on_delete=models.PROTECT) 
-    region = models.ForeignKey(Region, on_delete=models.PROTECT)
+    region = models.ForeignKey(Region, on_delete=models.PROTECT, null=True, blank=True)
     manager = models.ForeignKey(Manager, on_delete=models.PROTECT) 
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name_plural = "Counties"
         constraints = [
             models.UniqueConstraint(fields=["county_name", "state"], name="unique_county_name_per_state")
         ]
@@ -67,12 +68,17 @@ class Week(models.Model):
 
 
 class WeeklyPayroll(models.Model):
-    pk = models.CompositePrimaryKey("employee_id", "week_id")
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT) # Preserve historical records
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     regular_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     overtime_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     overtime_explanation = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name_plural = "Weekly payroll"
+        constraints = [
+            models.UniqueConstraint(fields=["employee", "week"], name="unique_employee_week")
+        ]
 
     def __str__(self):
         return self.employee.employee_name + " worked " + str(self.regular_hours) + " regular hours and " + \
@@ -80,11 +86,15 @@ class WeeklyPayroll(models.Model):
 
 
 class WeeklySignoff(models.Model):
-    pk = models.CompositePrimaryKey("county_id", "week_id")
     county = models.ForeignKey(County, on_delete=models.PROTECT) # Preserve historical records
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     manager = models.ForeignKey(Manager, on_delete=models.PROTECT)
     signed_at = models.DateTimeField(auto_now_add=True) # Set the timestamp when the record is created
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["county", "week"], name="unique_county_week")
+        ]
 
     def __str__(self):
         return str(self.county) + " report for " + str(self.week) + ", signed off by " + str(self.manager)
@@ -115,12 +125,13 @@ class CountyCategory(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name_plural = "County categories"
         constraints = [
             models.UniqueConstraint(fields=["county", "code", "subcategory_id"], name="unique_county_code_subcategory")
         ]
 
     def __str__(self):
-        return str(self.county) + ": " + str(self.code) + "-" + str(self.subcategory_id)
+        return str(self.county) + ": " + str(self.code.code_number) + "-" + str(self.subcategory_id)
 
 
 class CountyItem(models.Model):
@@ -131,6 +142,7 @@ class CountyItem(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name_plural = "County items"
         constraints = [
             models.UniqueConstraint(fields=["item", "category"], name="unique_item_category")
         ]
@@ -141,7 +153,6 @@ class CountyItem(models.Model):
 
 class Inventory(models.Model):
     """Each instance represents the inventory of an item in a county within one week"""
-    pk = models.CompositePrimaryKey("county_item_id", "week_id")
     county_item = models.ForeignKey(CountyItem, on_delete=models.PROTECT)
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     end_price = models.DecimalField(max_digits=6, decimal_places=2, default=0.00) # price per unit
@@ -149,6 +160,12 @@ class Inventory(models.Model):
     end_received_2 = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     end_inventory = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     deep_dive = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name_plural = "Inventory"
+        constraints = [
+            models.UniqueConstraint(fields=["county_item", "week"], name="unique_county_item_week")
+        ]
 
     def __str__(self):
         return "Inventory of " + str(self.county_item) + " for " + str(self.week)
@@ -166,10 +183,14 @@ class Invoice(models.Model):
 
 
 class InvoiceLineItem(models.Model):
-    pk = models.CompositePrimaryKey("invoice_id", "code_id")
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT)
     code = models.ForeignKey(FoodCode, on_delete=models.PROTECT)
     amount = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["invoice", "code"], name="unique_invoice_code")
+        ]
 
     def __str__(self):
         return str(self.invoice) + " for " + str(self.code)
@@ -198,11 +219,15 @@ class CountyMeal(models.Model):
 
 
 class DailySale(models.Model):
-    pk = models.CompositePrimaryKey("county_meal_id", "week_id", "sale_date")
     county_meal = models.ForeignKey(CountyMeal, on_delete=models.PROTECT)
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     sale_date = models.DateField()
     sale_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["county_meal", "week", "sale_date"], name="unique_county_meal_week_sale_date")
+        ]
 
     def __str__(self):
         return str(self.county_meal) + " sales for " + str(self.week) + " on " + str(self.sale_date)
