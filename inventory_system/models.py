@@ -31,7 +31,7 @@ class County(models.Model):
     # Preserve historical records if a state, region, or manager is deactivated
     state = models.ForeignKey(State, on_delete=models.PROTECT) 
     region = models.ForeignKey(Region, on_delete=models.PROTECT, null=True, blank=True)
-    manager = models.ForeignKey(Manager, on_delete=models.PROTECT) 
+    manager = models.ForeignKey(Manager, on_delete=models.PROTECT, null=True, blank=True) 
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -60,11 +60,17 @@ class Week(models.Model):
         2: "Locked", # All data is permanently locked after 2 weeks
     }
 
+    county = models.ForeignKey(County, on_delete=models.PROTECT) 
     end_date = models.DateField() # Ending date of the week
     status = models.IntegerField(choices=status_options, default=0)
 
+    class Meta:
+            constraints = [
+                models.UniqueConstraint(fields=["county", "end_date"], name="unique_county_end_date")
+            ]
+
     def __str__(self):
-        return "week ending on " + str(self.end_date)
+        return "Week ending on " + str(self.end_date) + " for " + str(self.county) + " (" + self.status_options[self.status] + ")"
 
 
 class WeeklyPayroll(models.Model):
@@ -81,23 +87,22 @@ class WeeklyPayroll(models.Model):
         ]
 
     def __str__(self):
-        return self.employee.employee_name + " worked " + str(self.regular_hours) + " regular hours and " + \
-                str(self.overtime_hours) + " overtime hours during the " + str(self.week) + "."
+        return self.employee.employee_name + ": " + str(self.regular_hours) + " regular hours, " + \
+                str(self.overtime_hours) + " overtime hours, " + str(self.week)
 
 
 class WeeklySignoff(models.Model):
-    county = models.ForeignKey(County, on_delete=models.PROTECT) # Preserve historical records
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     manager = models.ForeignKey(Manager, on_delete=models.PROTECT)
     signed_at = models.DateTimeField(auto_now_add=True) # Set the timestamp when the record is created
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["county", "week"], name="unique_county_week")
+            models.UniqueConstraint(fields=["week"], name="unique_week_signoff")
         ]
 
     def __str__(self):
-        return str(self.county) + " report for " + str(self.week) + ", signed off by " + str(self.manager)
+        return str(self.week.end_date) + ": signed off by " + str(self.manager)
 
 
 class Item(models.Model):
@@ -168,18 +173,17 @@ class Inventory(models.Model):
         ]
 
     def __str__(self):
-        return "Inventory of " + str(self.county_item) + " for " + str(self.week)
+        return "Inventory of " + str(self.county_item) + " for " + str(self.week.end_date)
 
 
 class Invoice(models.Model):
-    county = models.ForeignKey(County, on_delete=models.PROTECT)
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     vendor_name = models.CharField(max_length=100)
     invoice_number = models.CharField(max_length=100)
     tax = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
 
     def __str__(self):
-        return str(self.county) + " invoice for " + str(self.vendor_name) + " on " + str(self.week)
+        return "Invoice for " + str(self.vendor_name) + ": " + str(self.week)
 
 
 class InvoiceLineItem(models.Model):
@@ -230,5 +234,5 @@ class DailySale(models.Model):
         ]
 
     def __str__(self):
-        return str(self.county_meal) + " sales for " + str(self.week) + " on " + str(self.sale_date)
+        return str(self.county_meal) + " sales for week ending on " + str(self.week.end_date) + " on " + str(self.sale_date)
 
