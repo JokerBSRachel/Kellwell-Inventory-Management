@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 from datetime import timedelta
-from inventory_system.models import Week, County, CountyItem, Inventory, CountyMeal, DailySale, WeeklySignoff
+from inventory_system.models import Week, County, CountyItem, Inventory, CountyMeal, DailySale#, WeeklySignoff
 
 
 class Command(BaseCommand):

@@ -3,7 +3,11 @@ from django.db import models
 
 class State(models.Model):
     state_name = models.CharField(max_length=100)
+    state_abbreviation = models.CharField(max_length=2, unique=True)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "state_name"]
 
     def __str__(self):
         return self.state_name
@@ -13,14 +17,20 @@ class Region(models.Model):
     region_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["-is_active", "region_name"]
+
     def __str__(self):
         return self.region_name
 
 
 class Manager(models.Model):
     manager_name = models.CharField(max_length=100)
-    manager_title = models.CharField(max_length=100)
+    manager_title = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "manager_name"]
 
     def __str__(self):
         return self.manager_name
@@ -32,6 +42,9 @@ class County(models.Model):
     state = models.ForeignKey(State, on_delete=models.PROTECT) 
     region = models.ForeignKey(Region, on_delete=models.PROTECT, null=True, blank=True)
     manager = models.ForeignKey(Manager, on_delete=models.PROTECT, null=True, blank=True) 
+    tracking_start_date = models.DateField(null=True, blank=True)
+        # The Friday end-date of this county's first real tracked week.
+        # The "initial" bootstrap week is always 7 days before this.
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -39,15 +52,19 @@ class County(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["county_name", "state"], name="unique_county_name_per_state")
         ]
+        ordering = ["-is_active", "county_name", "state__state_abbreviation"]
 
     def __str__(self):
-        return self.county_name + " County, " + self.state.state_name
+        return self.county_name + " County, " + self.state.state_abbreviation
 
 
 class Employee(models.Model):
     county = models.ForeignKey(County, on_delete=models.PROTECT) # Preserve historical records
     employee_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "employee_name"]
 
     def __str__(self):
         return self.employee_name
@@ -63,11 +80,14 @@ class Week(models.Model):
     county = models.ForeignKey(County, on_delete=models.PROTECT) 
     end_date = models.DateField() # Ending date of the week
     status = models.IntegerField(choices=status_options, default=0)
+    is_initial = models.BooleanField(default=False)  # True only for the auto-created bootstrap week
 
     class Meta:
-            constraints = [
-                models.UniqueConstraint(fields=["county", "end_date"], name="unique_county_end_date")
-            ]
+        constraints = [
+            models.UniqueConstraint(fields=["county", "end_date"], name="unique_county_end_date")
+        ]
+        ordering = ["-end_date", "county__county_name", "county__state__state_abbreviation"]
+
 
     def __str__(self):
         return "Week ending on " + str(self.end_date) + " for " + str(self.county) + " (" + self.status_options[self.status] + ")"
@@ -85,10 +105,10 @@ class WeeklyPayroll(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["employee", "week"], name="unique_employee_week")
         ]
+        ordering = ["-week__end_date", "employee__employee_name", "employee__county__county_name", "employee__county__state__state_abbreviation"]
 
     def __str__(self):
-        return self.employee.employee_name + ": " + str(self.regular_hours) + " regular hours, " + \
-                str(self.overtime_hours) + " overtime hours, " + str(self.week)
+        return self.employee.employee_name + " - " + str(self.week.county) + " - " + str(self.week.end_date)
 
 
 class WeeklySignoff(models.Model):
@@ -100,26 +120,33 @@ class WeeklySignoff(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["week"], name="unique_week_signoff")
         ]
+        ordering = ["-week__end_date", "-signed_at", "week__county__county_name", "week__county__state__state_abbreviation"]
 
     def __str__(self):
-        return str(self.week.end_date) + ": signed off by " + str(self.manager)
+        return str(self.week.end_date) + " - " + str(self.week.county) + " - signed off by " + str(self.manager)
 
 
 class Item(models.Model):
     item_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["-is_active", "item_name"]
+
     def __str__(self):
         return self.item_name
 
 
 class FoodCode(models.Model):
-    code_name = models.CharField(max_length=100)
     code_number = models.PositiveSmallIntegerField(unique=True) 
+    code_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["-is_active", "code_number"]
+
     def __str__(self):
-        return str(self.code_number) + ": " + self.code_name
+        return str(self.code_number) + " - " + self.code_name
 
 
 class CountyCategory(models.Model):
@@ -134,9 +161,10 @@ class CountyCategory(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["county", "code", "subcategory_id"], name="unique_county_code_subcategory")
         ]
+        ordering = ["-is_active", "county__county_name", "code__code_number", "subcategory_id"]
 
     def __str__(self):
-        return str(self.county) + ": " + str(self.code.code_number) + "-" + str(self.subcategory_id)
+        return str(self.county) + " - " + str(self.code.code_number) + "-" + str(self.subcategory_id)
 
 
 class CountyItem(models.Model):
@@ -151,9 +179,10 @@ class CountyItem(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["item", "category"], name="unique_item_category")
         ]
+        ordering = ["-is_active", "category__county__county_name", "category__county__state__state_abbreviation", "category__code__code_number", "category__subcategory_id", "item__item_name"]
 
     def __str__(self):
-        return str(self.category) + " " + str(self.item)
+        return str(self.category) + " - " + str(self.item)
 
 
 class Inventory(models.Model):
@@ -171,10 +200,10 @@ class Inventory(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["county_item", "week"], name="unique_county_item_week")
         ]
+        ordering = ["-week__end_date", "county_item__category__county__county_name", "county_item__category__county__state__state_abbreviation", "county_item__category__code__code_number", "county_item__category__subcategory_id", "county_item__item__item_name"]
 
     def __str__(self):
-        return "Inventory of " + str(self.county_item) + " for " + str(self.week.end_date)
-
+        return str(self.week.end_date) + " - " + str(self.county_item)
 
 class Invoice(models.Model):
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
@@ -182,8 +211,11 @@ class Invoice(models.Model):
     invoice_number = models.CharField(max_length=100)
     tax = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
 
+    class Meta:
+        ordering = ["-week__end_date", "week__county__county_name", "week__county__state__state_abbreviation", "vendor_name", "invoice_number"]
+
     def __str__(self):
-        return "Invoice for " + str(self.vendor_name) + ": " + str(self.week)
+        return str(self.vendor_name) + " - " + str(self.week)
 
 
 class InvoiceLineItem(models.Model):
@@ -195,14 +227,18 @@ class InvoiceLineItem(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["invoice", "code"], name="unique_invoice_code")
         ]
+        ordering = ["-invoice__week__end_date", "invoice__week__county__county_name", "invoice__week__county__state__state_abbreviation", "invoice__vendor_name", "code__code_number"]
 
     def __str__(self):
-        return str(self.invoice) + " for " + str(self.code)
+        return str(self.invoice) + " - " + str(self.code)
 
 
 class Meal(models.Model):
     meal_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "meal_name"]
 
     def __str__(self):
         return self.meal_name
@@ -217,9 +253,10 @@ class CountyMeal(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["county", "meal"], name="unique_county_meal")
         ]
+        ordering = ["-is_active", "county__county_name", "county__state__state_abbreviation", "meal__meal_name"]
 
     def __str__(self):
-        return str(self.county) + " " + str(self.meal)
+        return str(self.county) + " - " + str(self.meal)
 
 
 class DailySale(models.Model):
@@ -232,7 +269,8 @@ class DailySale(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["county_meal", "week", "sale_date"], name="unique_county_meal_week_sale_date")
         ]
+        ordering = ["-week__end_date", "county_meal__county__county_name", "county_meal__county__state__state_abbreviation", "county_meal__meal__meal_name", "-sale_date"]
 
     def __str__(self):
-        return str(self.county_meal) + " sales for week ending on " + str(self.week.end_date) + " on " + str(self.sale_date)
+        return str(self.county_meal) + " - " + str(self.sale_date)
 
