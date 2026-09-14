@@ -24,8 +24,10 @@
     {% csrf_token %}
     <table border="1" cellpadding="6">
         <tr>
-            <th colspan="6">Beginning Inventory</th>
+            <th colspan="2">Item</th>
+            <th colspan="5">Beginning Inventory</th>
             <th colspan="5">Ending Inventory</th>
+            <th colspan="1">Usage</th>
         </tr>
         <tr>
             <th>Item Name</th>
@@ -47,6 +49,7 @@
             <td>
                 {% if is_editable %}
                   <button type="submit"
+                          style="display: inline;"
                           formaction="{% url 'delete_item' row.inventory_id %}"
                           onclick="return confirm('Remove {{ row.item_name }} from this sheet? \nWARNING: This will discard any unsaved edits.');">
                     ⊖
@@ -95,7 +98,7 @@
             </td>
         </tr>
         <tr>
-            <td colspan="12">
+            <td colspan="13">
                 Deep dive:
                 {% if is_editable %}
                 <input type="text" name="deep_dive_{{ row.inventory_id }}" value="{{ row.deep_dive }}"
