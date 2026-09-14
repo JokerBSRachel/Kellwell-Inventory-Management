@@ -3,9 +3,10 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, get_object_or_404, redirect
+from django.views.decorators.http import require_POST
 
 from .access import get_user_access, resolve_county, resolve_week
-from .models import CountyCategory, CountyItem, Inventory, Week
+from .models import CountyCategory, CountyItem, Inventory, Item, Week
 
 
 @login_required
@@ -109,7 +110,10 @@ def weekly_inventory(request, category_id=None, week_id=None):
     for row in current_rows:
         prev = previous_by_item.get(row.county_item_id)
         beginning_inventory = prev.end_inventory if prev else None
-        total_usage = (beginning_inventory + row.end_received_1 + row.end_received_2) - row.end_inventory
+        if beginning_inventory is not None:
+            total_usage = (beginning_inventory + row.end_received_1 + row.end_received_2) - row.end_inventory
+        else:
+            total_usage = None
 
         table_rows.append({
             "inventory_id": row.pk,
@@ -136,3 +140,115 @@ def weekly_inventory(request, category_id=None, week_id=None):
         "table_rows": table_rows,
         "is_editable": is_editable,
     })
+
+
+@login_required
+@require_POST
+def delete_item(request, inventory_id):
+    county = resolve_county(request)
+    inv = get_object_or_404(Inventory, pk=inventory_id, week__county=county)
+    week = inv.week
+    category_id = inv.county_item.category_id
+
+    access = get_user_access(request.user)
+    can_edit_previous = access.role in ("manager", "developer")
+    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+
+    if not is_editable:
+        raise PermissionDenied("This week is no longer editable.")
+
+    county_item = inv.county_item
+    county_item.is_active = False
+    county_item.save()
+
+    messages.success(request, f"{county_item.item.item_name} removed from this sheet.")
+
+    request.session["last_action"] = {
+        "type": "deactivate_county_item",
+        "county_item_id": county_item.pk,
+    }
+
+    if week.status == 0:
+        return redirect("weekly_inventory_category", category_id=category_id)
+    else:
+        return redirect("weekly_inventory_week", week_id=week.pk, category_id=category_id)
+
+
+@login_required
+@require_POST
+def add_item(request):
+    county = resolve_county(request)
+    category = get_object_or_404(CountyCategory, pk=request.POST.get("category_id"), county=county)
+    week = resolve_week(county)
+
+    access = get_user_access(request.user)
+    can_edit_previous = access.role in ("manager", "developer")
+    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    if not is_editable:
+        raise PermissionDenied("This week is no longer editable.")
+
+    item_name = request.POST.get("item_name", "").strip()
+    item_unit = request.POST.get("item_unit", "").strip()
+
+    if not item_name or not item_unit:
+        messages.error(request, "Item name and unit are required.")
+        return redirect("weekly_inventory_category", category_id=category.pk)
+
+    item = Item.objects.filter(item_name=item_name).first()
+    if item is None:
+        item = Item.objects.create(item_name=item_name, is_active=True)
+    elif not item.is_active:
+        item.is_active = True
+        item.save()
+
+    county_item = CountyItem.objects.filter(item=item, category=category).first()
+    if county_item is None:
+        county_item = CountyItem.objects.create(
+            item=item, category=category, item_unit=item_unit, is_active=True
+        )
+    else:
+        county_item.is_active = True
+        county_item.item_unit = item_unit
+        county_item.save()
+
+    def parse_starting(field_name):
+        try:
+            return Decimal(request.POST.get(field_name, "0"))
+        except (InvalidOperation, TypeError):
+            return Decimal("0.00")
+
+    Inventory.objects.get_or_create(
+        county_item=county_item,
+        week=week,
+        defaults={
+            "end_price": parse_starting("starting_price"),
+            "end_received_1": Decimal("0.00"),
+            "end_received_2": Decimal("0.00"),
+            "end_inventory": parse_starting("starting_inventory"),
+        },
+    )
+
+    request.session["last_action"] = {
+        "type": "create_county_item",
+        "county_item_id": county_item.pk,
+        "week_id": week.pk,
+    }
+
+    return redirect("weekly_inventory_category", category_id=category.pk)
+
+
+@login_required
+@require_POST
+def undo_last_action(request):
+    action = request.session.pop("last_action", None)
+    if not action:
+        messages.error(request, "Nothing to undo.")
+        return redirect(request.META.get("HTTP_REFERER", "dashboard"))
+
+    if action["type"] == "deactivate_county_item":
+        county_item = get_object_or_404(CountyItem, pk=action["county_item_id"])
+        county_item.is_active = True
+        county_item.save()
+        messages.success(request, "Item restored.")
+
+    return redirect(request.META.get("HTTP_REFERER", "dashboard"))

@@ -27,5 +27,8 @@ urlpatterns = [
     path('inventory/', inventory_views.weekly_inventory, name='weekly_inventory'),
     path('inventory/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_category'),
     path('inventory/week/<int:week_id>/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_week'),
+    path('inventory/delete-item/<int:inventory_id>/', inventory_views.delete_item, name='delete_item'),
+    path('inventory/undo/', inventory_views.undo_last_action, name='undo_last_action'),
+    path('inventory/add-item/', inventory_views.add_item, name='add_item'),
 \
 ]
