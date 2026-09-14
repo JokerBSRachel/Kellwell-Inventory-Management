@@ -136,6 +136,17 @@ class Item(models.Model):
     def __str__(self):
         return self.item_name
 
+    @classmethod
+    def get_or_reactivate(cls, item_name):
+        item, created = cls.objects.get_or_create(
+            item_name=item_name,
+            defaults={"is_active": True},
+        )
+        if not created and not item.is_active:
+            item.is_active = True
+            item.save()
+        return item
+
 
 class FoodCode(models.Model):
     code_number = models.PositiveSmallIntegerField(unique=True) 
