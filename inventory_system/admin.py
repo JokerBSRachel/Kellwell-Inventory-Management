@@ -32,6 +32,12 @@ class NoDeleteAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
+
     def get_actions(self, request):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
@@ -52,6 +58,12 @@ class NoDeleteOnlyAdmin(admin.ModelAdmin):
         actions = super().get_actions(request)
         actions.pop("delete_selected", None)
         return actions
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
 
 
 class ActiveStatusFilter(admin.SimpleListFilter):
@@ -87,13 +99,13 @@ class CountyAdminForm(forms.ModelForm):
         choices=[],
         required=False,
         label="Select starting week",
-        help_text="Only used when creating a new county.",
+        help_text="Select the first week of recorded inventory for the new county.",
     )
     template_county = forms.ModelChoiceField(
-        queryset=County.objects.all(),
+        queryset=County.objects.filter(is_active=True),
         required=False,
         label="Use county template?",
-        help_text="Optionally copy categories, meals, and items from an existing county.",
+        help_text="Optionally copy categories, meals, and items from an existing county. If you select a template, click \"Save and continue editing\" to see the copied categories and meals.",
     )
 
     class Meta:
@@ -105,19 +117,49 @@ class CountyAdminForm(forms.ModelForm):
         self.fields["starting_week"].choices = generate_week_choices()
 
 
+class CountyItemInlineForm(forms.ModelForm):
+    starting_price = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    starting_received_1 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    starting_received_2 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    starting_inventory = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+
+    class Meta:
+        model = CountyItem
+        fields = ["item", "item_unit", "is_active"]
+
+
 class CountyCategoryInline(admin.TabularInline):
     model = CountyCategory
     extra = 1  # shows 1 blank row for adding a new one
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
 
 
 class CountyMealInline(admin.TabularInline):
     model = CountyMeal
     extra = 1
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
+
 
 class CountyItemInline(admin.TabularInline):
     model = CountyItem
+    form = CountyItemInlineForm
     extra = 1
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
 
 
 @admin.register(County)
@@ -207,6 +249,56 @@ class CountyCategoryAdmin(NoDeleteAdmin):
     list_display = ("county", "code", "subcategory_id", "is_active")
     list_filter = ("county", "code", ActiveStatusFilter)
     inlines = [CountyItemInline]
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model == CountyItem:
+            formset.new_objects = []
+            formset.changed_objects = []
+            formset.deleted_objects = []
+
+            for inline_form in formset.deleted_forms:
+                if inline_form.instance.pk:
+                    formset.deleted_objects.append(inline_form.instance)
+                    inline_form.instance.delete()
+
+            for inline_form in formset.forms:
+                if inline_form in formset.deleted_forms:
+                    continue
+                if not inline_form.has_changed() and inline_form.instance.pk is None:
+                    continue
+                is_new = inline_form.instance.pk is None
+                instance = inline_form.save()
+                self.create_initial_inventory(instance, inline_form.cleaned_data)
+                if is_new:
+                    formset.new_objects.append(instance)
+                else:
+                    formset.changed_objects.append((instance, inline_form.changed_data))
+        else:
+            formset.save()
+
+    def create_initial_inventory(self, county_item, cleaned_data):
+        county = county_item.category.county
+        if not county.tracking_start_date:
+            return  # no starting week set, can't create an initial week
+
+        initial_end_date = county.tracking_start_date - timedelta(days=7)
+        initial_week, _ = Week.objects.get_or_create(
+            county=county,
+            end_date=initial_end_date,
+            defaults={"status": 0, "is_initial": True},
+        )
+
+        if Inventory.objects.filter(county_item=county_item, week=initial_week).exists():
+            return  # already has an initial inventory row, don't overwrite it
+
+        Inventory.objects.create(
+            county_item=county_item,
+            week=initial_week,
+            end_price=cleaned_data.get("starting_price") or 0,
+            end_received_1=cleaned_data.get("starting_received_1") or 0,
+            end_received_2=cleaned_data.get("starting_received_2") or 0,
+            end_inventory=cleaned_data.get("starting_inventory") or 0,
+        )
 
 
 @admin.register(State)
