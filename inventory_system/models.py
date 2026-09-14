@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -25,6 +27,13 @@ class Region(models.Model):
 
 
 class Manager(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="manager_profile",
+    )
     manager_name = models.CharField(max_length=100)
     manager_title = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
@@ -34,6 +43,10 @@ class Manager(models.Model):
 
     def __str__(self):
         return self.manager_name
+
+    def clean(self):
+        if self.user_id and hasattr(self.user, "employee_profile"):
+            raise ValidationError("This user is already linked to an Employee account and cannot also be a Manager.")
 
 
 class County(models.Model):
@@ -59,7 +72,14 @@ class County(models.Model):
 
 
 class Employee(models.Model):
-    county = models.ForeignKey(County, on_delete=models.PROTECT) # Preserve historical records
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employee_profile",
+    )
+    county = models.ForeignKey(County, on_delete=models.PROTECT)
     employee_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
@@ -68,6 +88,10 @@ class Employee(models.Model):
 
     def __str__(self):
         return self.employee_name
+
+    def clean(self):
+        if self.user_id and hasattr(self.user, "manager_profile"):
+            raise ValidationError("This user is already linked to a Manager account and cannot also be an Employee.")
 
 
 class Week(models.Model):

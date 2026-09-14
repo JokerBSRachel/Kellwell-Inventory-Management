@@ -30,6 +30,12 @@ DEBUG = True
 ALLOWED_HOSTS = []
 
 
+# User login
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'   # placeholder — the URL name for the inventory view we haven't built yet
+LOGOUT_REDIRECT_URL = 'login'
+
+
 # Application definition
 
 INSTALLED_APPS = [
