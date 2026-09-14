@@ -1,0 +1,54 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Kellwell Inventory</title>
+</head>
+
+<body>
+    <div style="display: flex;">
+        <nav style="width: 225px; border-right: 1px solid #ccc;">
+            <img src="{% static 'images/logo.jpg' %}" alt="Company Logo" style="max-width: 150px;">
+            <p>Welcome back, {{ request.user.get_username }}</p>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit">Sign out</button>
+            </form>
+
+            {% if nav_county %}
+            <p><strong><a href="{% url 'weekly_inventory' %}">{{ nav_county }} Inventory - {{ nav_week.end_date }}</a></strong></p>
+            <ul>
+                {% for cat in nav_categories %}
+                <li><a href="{% url 'weekly_inventory_category' cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+                </li>
+                {% endfor %}
+            </ul>
+            <ul>
+                <li><a href="#">Roll to next week</a></li>
+                {% if nav_role == "manager" or nav_role == "developer" %}
+                    {% if nav_previous_week %}
+                        <li><a href="{% url 'weekly_inventory_week' nav_previous_week.pk nav_categories.0.pk %}">Edit previous week</a></li>
+                    {% endif %}
+                {% endif %}
+                <li><a href="#">Totals</a></li>
+                <li><a href="#">Daily Sales</a></li>
+                <li><a href="#">Weekly Invoices Recap</a></li>
+                <li><a href="#">WOR</a></li>
+            </ul>
+            {% endif %}
+
+            {% if nav_counties.count > 1 %}
+            <p>You are viewing {{ nav_county }}.<br>
+                <a href="{% url 'dashboard' %}">Switch county</a>
+            </p>
+            {% endif %}
+        </nav>
+
+        <main style="flex: 1; padding: 20px;">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+
+</html>

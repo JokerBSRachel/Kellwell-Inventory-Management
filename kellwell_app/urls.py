@@ -24,4 +24,8 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='inventory_system/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('dashboard/', inventory_views.dashboard, name='dashboard'),
+    path('inventory/', inventory_views.weekly_inventory, name='weekly_inventory'),
+    path('inventory/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_category'),
+    path('inventory/week/<int:week_id>/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_week'),
+\
 ]

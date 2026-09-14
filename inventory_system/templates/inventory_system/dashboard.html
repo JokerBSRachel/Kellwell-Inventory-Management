@@ -1,0 +1,19 @@
+{% extends "inventory_system/base.html" %}
+{% load static %}
+
+{% block content %}
+<div style="text-align: center; margin-top: 100px;">
+    <img src="{% static 'images/logo.jpg' %}" alt="Company Logo" style="max-width: 200px;">
+
+    {% if show_picker %}
+    <h2>Select a county</h2>
+    <ul style="list-style: none;">
+        {% for c in counties %}
+        <li><a href="?county_id={{ c.pk }}">{{ c }}</a></li>
+        {% endfor %}
+    </ul>
+    {% elif county %}
+    <p>Welcome back — you're viewing {{ county }}.</p>
+    {% endif %}
+</div>
+{% endblock %}
