@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django import forms
+
+from inventory_system.services import ensure_initial_weeks
 from .models import (
     State, Region, Manager, County, Employee, Week,
     WeeklyPayroll, WeeklySignoff, Item, FoodCode,
@@ -118,10 +120,10 @@ class CountyAdminForm(forms.ModelForm):
 
 
 class CountyItemInlineForm(forms.ModelForm):
-    starting_price = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
-    starting_received_1 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
-    starting_received_2 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
-    starting_inventory = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    # starting_price = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    # starting_received_1 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    # starting_received_2 = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
+    # starting_inventory = forms.DecimalField(max_digits=6, decimal_places=2, required=False, initial=0)
 
     class Meta:
         model = CountyItem
@@ -207,40 +209,29 @@ class CountyAdmin(NoDeleteAdmin):
                 is_active=old_meal.is_active,
             )
 
-        initial_week = None
-        initial_end_date = None
-        if new_county.tracking_start_date:
-            initial_end_date = new_county.tracking_start_date - timedelta(days=7)
+        initial_week, first_week = ensure_initial_weeks(new_county)
 
         for old_item in CountyItem.objects.filter(category__county=template_county):
             new_category = category_map.get(old_item.category_id)
             if not new_category:
                 continue
             new_item = CountyItem.objects.create(
-                item=old_item.item,
-                category=new_category,
-                item_unit=old_item.item_unit,
-                is_active=old_item.is_active,
+                item=old_item.item, category=new_category,
+                item_unit=old_item.item_unit, is_active=old_item.is_active,
             )
 
-            old_initial_inventory = Inventory.objects.filter(
-                county_item=old_item, week__is_initial=True
-            ).first()
-
-            if old_initial_inventory and initial_end_date:
-                if initial_week is None:
-                    initial_week, _ = Week.objects.get_or_create(
-                        county=new_county,
-                        end_date=initial_end_date,
-                        defaults={"status": 0, "is_initial": True},
-                    )
+            if initial_week:
+                old_initial = Inventory.objects.filter(
+                    county_item=old_item, week__is_initial=True
+                ).first()
                 Inventory.objects.create(
-                    county_item=new_item,
-                    week=initial_week,
-                    end_price=old_initial_inventory.end_price,
-                    end_inventory=old_initial_inventory.end_inventory,
-                    end_received_1=0,
-                    end_received_2=0,
+                    county_item=new_item, week=initial_week,
+                    end_price=old_initial.end_price if old_initial else 0,
+                    end_received_1=0, end_received_2=0, end_inventory=0,
+                )
+                Inventory.objects.create(
+                    county_item=new_item, week=first_week,
+                    end_price=0, end_received_1=0, end_received_2=0, end_inventory=0,
                 )
 
 
@@ -268,7 +259,7 @@ class CountyCategoryAdmin(NoDeleteAdmin):
                     continue
                 is_new = inline_form.instance.pk is None
                 instance = inline_form.save()
-                self.create_initial_inventory(instance, inline_form.cleaned_data)
+                self.create_initial_inventory(instance)
                 if is_new:
                     formset.new_objects.append(instance)
                 else:
@@ -276,30 +267,19 @@ class CountyCategoryAdmin(NoDeleteAdmin):
         else:
             formset.save()
 
-    def create_initial_inventory(self, county_item, cleaned_data):
+    def create_initial_inventory(self, county_item):
         county = county_item.category.county
-        if not county.tracking_start_date:
-            return  # no starting week set, can't create an initial week
+        initial_week, first_week = ensure_initial_weeks(county)
+        if not initial_week:
+            return
 
-        initial_end_date = county.tracking_start_date - timedelta(days=7)
-        initial_week, _ = Week.objects.get_or_create(
-            county=county,
-            end_date=initial_end_date,
-            defaults={"status": 0, "is_initial": True},
-        )
-
-        if Inventory.objects.filter(county_item=county_item, week=initial_week).exists():
-            return  # already has an initial inventory row, don't overwrite it
-
-        Inventory.objects.create(
-            county_item=county_item,
-            week=initial_week,
-            end_price=cleaned_data.get("starting_price") or 0,
-            end_received_1=cleaned_data.get("starting_received_1") or 0,
-            end_received_2=cleaned_data.get("starting_received_2") or 0,
-            end_inventory=cleaned_data.get("starting_inventory") or 0,
-        )
-
+        for week in (initial_week, first_week):
+            if not Inventory.objects.filter(county_item=county_item, week=week).exists():
+                Inventory.objects.create(
+                    county_item=county_item, week=week,
+                    end_price=0, end_received_1=0, end_received_2=0, end_inventory=0,
+                )
+    
 
 @admin.register(State)
 class StateAdmin(NoDeleteAdmin):

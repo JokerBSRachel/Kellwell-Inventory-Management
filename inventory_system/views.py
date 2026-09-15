@@ -43,6 +43,8 @@ def weekly_inventory(request, category_id=None, week_id=None):
         county=county, end_date__lt=week.end_date
     ).order_by("-end_date").first()
 
+    allow_beginning_edit = is_editable and previous_week is not None and previous_week.is_initial
+
     previous_by_item = {}
     if previous_week:
         previous_rows = Inventory.objects.filter(
@@ -95,6 +97,31 @@ def weekly_inventory(request, category_id=None, week_id=None):
             inv.deep_dive = deep_dive_value
             inv.save()
 
+            if allow_beginning_edit:
+                new_item_unit = request.POST.get(f"item_unit_{inv.pk}", "").strip()
+                if new_item_unit and new_item_unit != inv.county_item.item_unit:
+                    inv.county_item.item_unit = new_item_unit
+                    inv.county_item.save()
+
+            if allow_beginning_edit and prev:
+                def parse_begin(field_name, fallback):
+                    raw = request.POST.get(f"{field_name}_{prev.pk}")
+                    if raw is None:
+                        return fallback
+                    try:
+                        value = Decimal(raw)
+                        if value < 0:
+                            raise InvalidOperation
+                        return value
+                    except (InvalidOperation, TypeError):
+                        return fallback
+
+                prev.end_price = parse_begin("begin_price", prev.end_price)
+                prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
+                prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
+                prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
+                prev.save()
+
         if week.status == 0:
             return redirect("weekly_inventory_category", category_id=category.pk)
         else:
@@ -116,6 +143,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
             total_usage = None
 
         table_rows.append({
+            "beginning_inventory_id": prev.pk if prev else None,
             "inventory_id": row.pk,
             "item_name": row.county_item.item.item_name,
             "unit": row.county_item.item_unit,
@@ -123,13 +151,13 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "beginning_received_1": prev.end_received_1 if prev else None,
             "beginning_received_2": prev.end_received_2 if prev else None,
             "beginning_inventory": beginning_inventory,
-            "beginning_total": (prev.end_price * prev.end_inventory) if prev else None,
+            "beginning_total": f"{(prev.end_price * prev.end_inventory):.2f}" if prev else "0.00",
             "ending_price": row.end_price,
             "ending_received_1": row.end_received_1,
             "ending_received_2": row.end_received_2,
             "ending_inventory": row.end_inventory,
-            "ending_total": row.end_price * row.end_inventory,
-            "total_usage": total_usage,
+            "ending_total": f"{(row.end_price * row.end_inventory):.2f}",
+            "total_usage": f"{total_usage:.2f}" if total_usage is not None else "0.00",
             "deep_dive": row.deep_dive,
         })
 
@@ -139,6 +167,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         "category": category,
         "table_rows": table_rows,
         "is_editable": is_editable,
+        "allow_beginning_edit": allow_beginning_edit, 
     })
 
 
