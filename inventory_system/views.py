@@ -131,7 +131,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         week=week,
         county_item__category=category,
         county_item__is_active=True,
-    ).select_related("county_item__item")
+    ).select_related("county_item__item").order_by("county_item_id")
 
     table_rows = []
     for row in current_rows:
@@ -242,20 +242,38 @@ def add_item(request):
 
     def parse_starting(field_name):
         try:
-            return Decimal(request.POST.get(field_name, "0"))
+            value = Decimal(request.POST.get(field_name, "0"))
+            return value if value >= 0 else Decimal("0.00")
         except (InvalidOperation, TypeError):
             return Decimal("0.00")
 
-    Inventory.objects.get_or_create(
+    entered_price = parse_starting("starting_price")
+    entered_inventory = parse_starting("starting_inventory")
+
+    previous_week = Week.objects.filter(
+        county=county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+
+    if previous_week and previous_week.is_initial:
+        Inventory.objects.get_or_create(
+            county_item=county_item,
+            week=previous_week,
+            defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
+                    "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
+        )
+
+    inv, created = Inventory.objects.get_or_create(
         county_item=county_item,
         week=week,
-        defaults={
-            "end_price": parse_starting("starting_price"),
-            "end_received_1": Decimal("0.00"),
-            "end_received_2": Decimal("0.00"),
-            "end_inventory": parse_starting("starting_inventory"),
-        },
+        defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
+                "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
     )
+    if not created:
+        inv.end_price = entered_price
+        inv.end_received_1 = Decimal("0.00")
+        inv.end_received_2 = Decimal("0.00")
+        inv.end_inventory = entered_inventory
+        inv.save()
 
     request.session["last_action"] = {
         "type": "create_county_item",

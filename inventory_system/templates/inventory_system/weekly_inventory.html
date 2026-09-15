@@ -46,7 +46,7 @@
             <th>Deep Dive</th>
         </tr>
         {% for row in table_rows %}
-        <tr>
+        <tr class="inventory_row">
             <td>
                 {% if is_editable %}
                     <button type="submit"
@@ -162,7 +162,6 @@
             <td>
               <input type="text" name="item_unit" placeholder="Unit" formaction="{% url 'add_item' %}">
             </td>
-            <td colspan="4"></td>
             <td>
               <input type="number" step="0.01" name="starting_price" placeholder="Price" formaction="{% url 'add_item' %}">
             </td>
@@ -174,6 +173,7 @@
               <input type="hidden" name="category_id" value="{{ category.pk }}" formaction="{% url 'add_item' %}">
               <button type="submit" formaction="{% url 'add_item' %}">Add</button>
             </td>
+            <td colspan="7"></td>
           </tr>
     </table>
 

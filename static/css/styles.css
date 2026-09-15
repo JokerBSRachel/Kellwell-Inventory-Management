@@ -2,8 +2,16 @@ body {
     font-family: Arial, sans-serif;
 }
 
-input[type="number"] {
+.inventory_row input[type="number"] {
     width: 50px;
+}
+
+#add-item-row input[type="text"] {
+    width: 120px;
+}
+
+#add-item-row input[type="number"] {
+    width: 70px;
 }
 
 table {
