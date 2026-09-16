@@ -2,6 +2,13 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+import re
+
+def _normalize_name(text):
+    """Collapses all whitespace and lowercases, for exact-match comparison
+    that ignores case and spacing differences (e.g. 'Cup Cake' == 'cupcake')."""
+    return re.sub(r"\s+", "", text or "").lower()
+
 
 class State(models.Model):
     state_name = models.CharField(max_length=100)
@@ -45,8 +52,8 @@ class Manager(models.Model):
         return self.manager_name
 
     def clean(self):
-        if self.user_id and hasattr(self.user, "employee_profile"):
-            raise ValidationError("This user is already linked to an Employee account and cannot also be a Manager.")
+        if self.user_id and hasattr(self.user, "county_login"):
+            raise ValidationError("This user is already linked to a County login and cannot also be a Manager.")
 
 
 class County(models.Model):
@@ -55,15 +62,22 @@ class County(models.Model):
     state = models.ForeignKey(State, on_delete=models.PROTECT) 
     region = models.ForeignKey(Region, on_delete=models.PROTECT, null=True, blank=True)
     manager = models.ForeignKey(Manager, on_delete=models.PROTECT, null=True, blank=True) 
+    login_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="county_login", verbose_name="Employee user account",
+    )
     tracking_start_date = models.DateField(null=True, blank=True)
         # The Friday end-date of this county's first real tracked week.
         # The "initial" bootstrap week is always 7 days before this.
+    is_template = models.BooleanField(default=False)
+        # True for counties used only as setup templates, not real operating counties.
+        # Hides rollover, previous-week editing, and reporting links in the app.
     is_active = models.BooleanField(default=True)
 
     class Meta:
         verbose_name_plural = "Counties"
         constraints = [
-            models.UniqueConstraint(fields=["county_name", "state"], name="unique_county_name_per_state")
+            models.UniqueConstraint(fields=["county_name", "state"], condition=models.Q(is_active=True), name="unique_county_name_per_state")
         ]
         ordering = ["-is_active", "county_name", "state__state_abbreviation"]
 
@@ -72,13 +86,6 @@ class County(models.Model):
 
 
 class Employee(models.Model):
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="employee_profile",
-    )
     county = models.ForeignKey(County, on_delete=models.PROTECT)
     employee_name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
@@ -88,10 +95,6 @@ class Employee(models.Model):
 
     def __str__(self):
         return self.employee_name
-
-    def clean(self):
-        if self.user_id and hasattr(self.user, "manager_profile"):
-            raise ValidationError("This user is already linked to a Manager account and cannot also be an Employee.")
 
 
 class Week(models.Model):
@@ -161,15 +164,51 @@ class Item(models.Model):
         return self.item_name
 
     @classmethod
-    def get_or_reactivate(cls, item_name):
-        item, created = cls.objects.get_or_create(
-            item_name=item_name,
-            defaults={"is_active": True},
-        )
-        if not created and not item.is_active:
-            item.is_active = True
-            item.save()
-        return item
+    def find_exact_match(cls, name):
+        target = _normalize_name(name)
+        for item in cls.objects.all():
+            if _normalize_name(item.item_name) == target:
+                return item
+        return None
+
+    @classmethod
+    def get_or_create_matching(cls, name):
+        existing = cls.find_exact_match(name)
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save()
+            return existing
+        return cls.objects.create(item_name=name.strip(), is_active=True)
+
+
+class Unit(models.Model):
+    unit_name = models.CharField(max_length=50, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "unit_name"]
+
+    def __str__(self):
+        return self.unit_name
+
+    @classmethod
+    def find_exact_match(cls, name):
+        target = _normalize_name(name)
+        for unit in cls.objects.all():
+            if _normalize_name(unit.unit_name) == target:
+                return unit
+        return None
+
+    @classmethod
+    def get_or_create_matching(cls, name):
+        existing = cls.find_exact_match(name)
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save()
+            return existing
+        return cls.objects.create(unit_name=name.strip(), is_active=True)
 
 
 class FoodCode(models.Model):
@@ -194,7 +233,7 @@ class CountyCategory(models.Model):
     class Meta:
         verbose_name_plural = "County categories"
         constraints = [
-            models.UniqueConstraint(fields=["county", "code", "subcategory_id"], name="unique_county_code_subcategory")
+            models.UniqueConstraint(fields=["county", "code", "subcategory_id"], condition=models.Q(is_active=True), name="unique_county_code_subcategory")
         ]
         ordering = ["-is_active", "county__county_name", "code__code_number", "subcategory_id"]
 
@@ -206,18 +245,25 @@ class CountyItem(models.Model):
     """Categorizes items for a county within its specific categories."""
     item = models.ForeignKey(Item, on_delete=models.PROTECT)
     category = models.ForeignKey(CountyCategory, on_delete=models.PROTECT)
-    item_unit = models.CharField(max_length=100)
+    unit = models.ForeignKey(Unit, on_delete=models.PROTECT, null=True, blank=True)
+    display_name = models.CharField(max_length=100, blank=True)
+        # Optional county-specific override of item.item_name (e.g. "Green Peas" vs "Peas").
+        # Never modifies the shared Item row, so other counties are unaffected.
     is_active = models.BooleanField(default=True)
 
     class Meta:
         verbose_name_plural = "County items"
         constraints = [
-            models.UniqueConstraint(fields=["item", "category"], name="unique_item_category")
+            models.UniqueConstraint(fields=["item", "category", "unit"], condition=models.Q(is_active=True), name="unique_item_category_unit")
         ]
-        ordering = ["-is_active", "category__county__county_name", "category__county__state__state_abbreviation", "category__code__code_number", "category__subcategory_id", "item__item_name"]
+        ordering = ["-is_active", "category__county__county_name", "category__county__state__state_abbreviation", "category__code__code_number", "category__subcategory_id", "display_name"]
 
     def __str__(self):
-        return str(self.category) + " - " + str(self.item)
+        return str(self.category) + " - " + self.display + " - " + str(self.unit)
+
+    @property
+    def display(self):
+        return self.display_name or self.item.item_name
 
 
 class Inventory(models.Model):
@@ -286,7 +332,7 @@ class CountyMeal(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["county", "meal"], name="unique_county_meal")
+            models.UniqueConstraint(fields=["county", "meal"], condition=models.Q(is_active=True), name="unique_county_meal")
         ]
         ordering = ["-is_active", "county__county_name", "county__state__state_abbreviation", "meal__meal_name"]
 

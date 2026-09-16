@@ -30,5 +30,5 @@ urlpatterns = [
     path('inventory/delete-item/<int:inventory_id>/', inventory_views.delete_item, name='delete_item'),
     path('inventory/undo/', inventory_views.undo_last_action, name='undo_last_action'),
     path('inventory/add-item/', inventory_views.add_item, name='add_item'),
-\
+    path('inventory/roll/', inventory_views.roll_to_next_week, name='roll_to_next_week'),
 ]

@@ -6,7 +6,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 
 from .access import get_user_access, resolve_county, resolve_week
-from .models import CountyCategory, CountyItem, Inventory, Item, Week
+from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit
+from .services import rollover_county_week
 
 
 @login_required
@@ -44,6 +45,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
     ).order_by("-end_date").first()
 
     allow_beginning_edit = is_editable and previous_week is not None and previous_week.is_initial
+    allow_name_edit = allow_beginning_edit or (is_editable and can_edit_previous)
 
     previous_by_item = {}
     if previous_week:
@@ -97,11 +99,20 @@ def weekly_inventory(request, category_id=None, week_id=None):
             inv.deep_dive = deep_dive_value
             inv.save()
 
-            if allow_beginning_edit:
-                new_item_unit = request.POST.get(f"item_unit_{inv.pk}", "").strip()
-                if new_item_unit and new_item_unit != inv.county_item.item_unit:
-                    inv.county_item.item_unit = new_item_unit
-                    inv.county_item.save()
+            if allow_name_edit:
+                new_display_name = request.POST.get(f"item_name_{inv.pk}", "").strip()
+                if new_display_name != inv.county_item.display_name:
+                    inv.county_item.display_name = new_display_name
+
+                new_unit_name = request.POST.get(f"item_unit_{inv.pk}", "").strip()
+                if new_unit_name:
+                    new_unit = Unit.get_or_create_matching(new_unit_name)
+                    if new_unit != inv.county_item.unit:
+                        inv.county_item.unit = new_unit
+                else:
+                    inv.county_item.unit = None
+
+                inv.county_item.save()
 
             if allow_beginning_edit and prev:
                 def parse_begin(field_name, fallback):
@@ -131,7 +142,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         week=week,
         county_item__category=category,
         county_item__is_active=True,
-    ).select_related("county_item__item").order_by("county_item_id")
+    ).select_related("county_item__item", "county_item__unit").order_by("county_item_id")
 
     table_rows = []
     for row in current_rows:
@@ -145,8 +156,8 @@ def weekly_inventory(request, category_id=None, week_id=None):
         table_rows.append({
             "beginning_inventory_id": prev.pk if prev else None,
             "inventory_id": row.pk,
-            "item_name": row.county_item.item.item_name,
-            "unit": row.county_item.item_unit,
+            "item_name": row.county_item.display, 
+            "unit": row.county_item.unit.unit_name if row.county_item.unit else "",         
             "beginning_price": prev.end_price if prev else None,
             "beginning_received_1": prev.end_received_1 if prev else None,
             "beginning_received_2": prev.end_received_2 if prev else None,
@@ -161,6 +172,9 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "deep_dive": row.deep_dive,
         })
 
+    unit_options = Unit.objects.filter(is_active=True)
+    item_options = Item.objects.filter(is_active=True)
+
     return render(request, "inventory_system/weekly_inventory.html", {
         "county": county,
         "week": week,
@@ -168,6 +182,9 @@ def weekly_inventory(request, category_id=None, week_id=None):
         "table_rows": table_rows,
         "is_editable": is_editable,
         "allow_beginning_edit": allow_beginning_edit, 
+        "allow_name_edit": allow_name_edit,
+        "unit_options": unit_options,
+        "item_options": item_options,
     })
 
 
@@ -217,27 +234,20 @@ def add_item(request):
         raise PermissionDenied("This week is no longer editable.")
 
     item_name = request.POST.get("item_name", "").strip()
-    item_unit = request.POST.get("item_unit", "").strip()
+    unit_name = request.POST.get("item_unit", "").strip()
 
-    if not item_name or not item_unit:
-        messages.error(request, "Item name and unit are required.")
+    if not item_name:
+        messages.error(request, "Item name is required.")
         return redirect("weekly_inventory_category", category_id=category.pk)
 
-    item = Item.objects.filter(item_name=item_name).first()
-    if item is None:
-        item = Item.objects.create(item_name=item_name, is_active=True)
-    elif not item.is_active:
-        item.is_active = True
-        item.save()
+    item = Item.get_or_create_matching(item_name)
+    unit = Unit.get_or_create_matching(unit_name) if unit_name else None
 
-    county_item = CountyItem.objects.filter(item=item, category=category).first()
+    county_item = CountyItem.objects.filter(item=item, category=category, unit=unit).first()
     if county_item is None:
-        county_item = CountyItem.objects.create(
-            item=item, category=category, item_unit=item_unit, is_active=True
-        )
+        county_item = CountyItem.objects.create(item=item, category=category, unit=unit, is_active=True)
     else:
         county_item.is_active = True
-        county_item.item_unit = item_unit
         county_item.save()
 
     def parse_starting(field_name):
@@ -249,6 +259,8 @@ def add_item(request):
 
     entered_price = parse_starting("starting_price")
     entered_inventory = parse_starting("starting_inventory")
+    entered_received_1 = parse_starting("starting_received_1")
+    entered_received_2 = parse_starting("starting_received_2")
 
     previous_week = Week.objects.filter(
         county=county, end_date__lt=week.end_date
@@ -258,15 +270,16 @@ def add_item(request):
         Inventory.objects.get_or_create(
             county_item=county_item,
             week=previous_week,
-            defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
-                    "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
+            defaults={"end_price": entered_price,
+                      "end_received_1": entered_received_1, "end_received_2": entered_received_2,
+                      "end_inventory": entered_inventory},
         )
 
     inv, created = Inventory.objects.get_or_create(
         county_item=county_item,
         week=week,
         defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
-                "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
+                  "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
     )
     if not created:
         inv.end_price = entered_price
@@ -299,3 +312,21 @@ def undo_last_action(request):
         messages.success(request, "Item restored.")
 
     return redirect(request.META.get("HTTP_REFERER", "dashboard"))
+
+
+@login_required
+def roll_to_next_week(request):
+    county = resolve_county(request)
+
+    if county.is_template:
+        raise PermissionDenied("This county is a template and cannot be rolled over.")
+
+    if request.method == "POST":
+        try:
+            rollover_county_week(county)
+            messages.success(request, "Week rolled over successfully.")
+        except ValueError as e:
+            messages.error(request, str(e))
+        return redirect("weekly_inventory")
+
+    return render(request, "inventory_system/roll_confirm.html", {"county": county})

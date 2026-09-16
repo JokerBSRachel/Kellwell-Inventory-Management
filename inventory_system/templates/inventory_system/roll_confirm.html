@@ -1,0 +1,15 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h1>Roll {{ county }} to the next week?</h1>
+<p style="color: red; font-weight: bold;">
+  This action is irreversible. Once you roll over, this week's data will be locked
+  and a new week will begin. Make sure everything is correct before proceeding.
+</p>
+
+<form method="post">
+  {% csrf_token %}
+  <button type="submit">Yes, roll to next week</button>
+</form>
+<a href="{% url 'weekly_inventory' %}">Cancel</a>
+{% endblock %}

@@ -25,8 +25,9 @@
                 </li>
                 {% endfor %}
             </ul>
+            {% if not nav_county.is_template %}
             <ul>
-                <li><a href="#">Roll to next week</a></li>
+                <li><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></li>
                 {% if nav_role == "manager" or nav_role == "developer" %}
                     {% if nav_previous_week %}
                         <li><a href="{% url 'weekly_inventory_week' nav_previous_week.pk nav_categories.0.pk %}">Edit previous week</a></li>
@@ -37,6 +38,7 @@
                 <li><a href="#">Weekly Invoices Recap</a></li>
                 <li><a href="#">WOR</a></li>
             </ul>
+            {% endif %}
             {% endif %}
 
             {% if nav_counties.count > 1 %}

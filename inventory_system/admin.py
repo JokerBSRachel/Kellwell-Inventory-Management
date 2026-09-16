@@ -6,7 +6,7 @@ from .models import (
     State, Region, Manager, County, Employee, Week,
     WeeklyPayroll, WeeklySignoff, Item, FoodCode,
     CountyCategory, CountyItem, Inventory, Invoice,
-    InvoiceLineItem, Meal, CountyMeal, DailySale,
+    InvoiceLineItem, Meal, CountyMeal, DailySale, Unit
 )
 from datetime import date, timedelta
 
@@ -127,7 +127,19 @@ class CountyItemInlineForm(forms.ModelForm):
 
     class Meta:
         model = CountyItem
-        fields = ["item", "item_unit", "is_active"]
+        fields = ["item", "unit","is_active"]
+
+
+class EmployeeInline(admin.TabularInline):
+    model = Employee
+    extra = 1
+    fields = ["employee_name", "is_active"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if field and hasattr(field.queryset.model, "is_active"):
+            field.queryset = field.queryset.filter(is_active=True)
+        return field
 
 
 class CountyCategoryInline(admin.TabularInline):
@@ -170,15 +182,31 @@ class CountyAdmin(NoDeleteAdmin):
     list_display = ("county_name", "state", "region", "manager", "is_active")
     list_filter = ("state", "region", ActiveStatusFilter)
     search_fields = ("county_name",)
-    inlines = [CountyCategoryInline, CountyMealInline]
+
+    @admin.action(description="Deactivate selected items")
+    def deactivate_selected(self, request, queryset):
+        updated = queryset.update(is_active=False, login_user=None)
+        self.message_user(request, f"{updated} item(s) deactivated.")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "login_user":
+            taken_ids = list(Manager.objects.exclude(user__isnull=True).values_list("user_id", flat=True))
+            taken_ids += list(County.objects.exclude(pk=request.resolver_match.kwargs.get("object_id")).exclude(login_user__isnull=True).values_list("login_user_id", flat=True))
+            field.queryset = field.queryset.exclude(pk__in=taken_ids)
+        return field
+
+    inlines = [EmployeeInline, CountyCategoryInline, CountyMealInline]
 
     def get_fields(self, request, obj=None):
-        fields = ["county_name", "state", "region", "manager", "is_active"]
-        if obj is None:  # only show these when creating a new county
+        fields = ["county_name", "state", "region", "manager", "login_user", "is_template", "is_active"]
+        if obj is None:
             fields += ["starting_week", "template_county"]
         return fields
-
+    
     def save_model(self, request, obj, form, change):
+        if change and not obj.is_active:
+            obj.login_user = None
         if not change:  # only applies when creating a new county
             starting_week_str = form.cleaned_data.get("starting_week")
             if starting_week_str:
@@ -211,13 +239,13 @@ class CountyAdmin(NoDeleteAdmin):
 
         initial_week, first_week = ensure_initial_weeks(new_county)
 
-        for old_item in CountyItem.objects.filter(category__county=template_county):
+        for old_item in CountyItem.objects.filter(category__county=template_county).order_by("pk"):
             new_category = category_map.get(old_item.category_id)
             if not new_category:
                 continue
             new_item = CountyItem.objects.create(
                 item=old_item.item, category=new_category,
-                item_unit=old_item.item_unit, is_active=old_item.is_active,
+                display_name=old_item.display_name, unit=old_item.unit, is_active=old_item.is_active,
             )
 
             if initial_week:
@@ -297,6 +325,14 @@ class ManagerAdmin(NoDeleteAdmin):
     list_display = ("manager_name", "manager_title", "is_active")
     search_fields = ("manager_name",)
 
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "user":
+            taken_ids = list(Manager.objects.exclude(pk=request.resolver_match.kwargs.get("object_id")).exclude(user__isnull=True).values_list("user_id", flat=True))
+            taken_ids += list(County.objects.exclude(login_user__isnull=True).values_list("login_user_id", flat=True))
+            field.queryset = field.queryset.exclude(pk__in=taken_ids)
+        return field
+
 
 @admin.register(Employee)
 class EmployeeAdmin(NoDeleteAdmin):
@@ -317,6 +353,12 @@ class FoodCodeAdmin(NoDeleteAdmin):
     search_fields = ("code_name",)
 
 
+@admin.register(Unit)
+class UnitAdmin(NoDeleteAdmin):
+    list_display = ("unit_name", "is_active")
+    search_fields = ("unit_name",)
+
+
 @admin.register(Meal)
 class MealAdmin(NoDeleteAdmin):
     list_display = ("meal_name", "is_active")
@@ -330,9 +372,9 @@ class CountyMealAdmin(NoDeleteAdmin):
 
 @admin.register(CountyItem)
 class CountyItemAdmin(NoDeleteAdmin):
-    list_display = ("item", "category", "item_unit", "is_active")
+    list_display = ("item", "display_name", "unit", "category", "is_active")
     list_filter = ("category__county", ActiveStatusFilter)
-    search_fields = ("item__item_name",)
+    search_fields = ("item__item_name", "display_name")
 
 
 @admin.register(Week)

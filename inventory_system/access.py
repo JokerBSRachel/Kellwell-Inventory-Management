@@ -18,11 +18,11 @@ def get_user_access(user) -> UserAccess:
     if user.is_superuser or user.is_staff:
         return UserAccess(role="developer", counties=County.objects.filter(is_active=True))
 
-    employee = getattr(user, "employee_profile", None)
-    if employee is not None:
+    employee_county = getattr(user, "county_login", None)
+    if employee_county is not None:
         return UserAccess(
             role="employee",
-            counties=County.objects.filter(pk=employee.county_id, is_active=True),
+            counties=County.objects.filter(pk=employee_county.pk, is_active=True),
         )
 
     manager = getattr(user, "manager_profile", None)
