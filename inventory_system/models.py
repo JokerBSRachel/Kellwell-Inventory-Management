@@ -249,6 +249,8 @@ class CountyItem(models.Model):
     display_name = models.CharField(max_length=100, blank=True)
         # Optional county-specific override of item.item_name (e.g. "Green Peas" vs "Peas").
         # Never modifies the shared Item row, so other counties are unaffected.
+    sort_order = models.IntegerField(default=0)
+        # Allows the user to rearrange the items in the sheet view.
     is_active = models.BooleanField(default=True)
 
     class Meta:

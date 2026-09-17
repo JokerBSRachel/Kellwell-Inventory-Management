@@ -1,5 +1,6 @@
 body {
     font-family: Arial, sans-serif;
+    
 }
 
 .inventory_row input[type="number"] {
@@ -16,4 +17,21 @@ body {
 
 table {
     width: 100%;
+    font-size: 12px;
+}
+
+.active-row {
+    outline: 2px solid #555;
+    outline-offset: -1px;
+    background-color: lightgray;
+}
+
+.unfilled-cell {
+    background-color: #e0e0e0;
+}
+
+.deep-dive-btn.has-note {
+    background-color: darkgray;
+    border-radius: 2px;
+    border: 1px solid black;
 }

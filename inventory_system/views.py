@@ -4,10 +4,113 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
+from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit
 from .services import rollover_county_week
+
+
+def save_sheet_fields(request, week, category, access):
+    can_edit_previous = access.role in ("manager", "developer")
+    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    if not is_editable:
+        return
+
+    previous_week = Week.objects.filter(
+        county=week.county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+
+    allow_beginning_edit = is_editable and previous_week is not None and previous_week.is_initial
+    allow_name_edit = allow_beginning_edit or (is_editable and can_edit_previous)
+
+    previous_by_item = {}
+    if previous_week:
+        previous_rows = Inventory.objects.filter(
+            week=previous_week, county_item__category=category
+        )
+        previous_by_item = {r.county_item_id: r for r in previous_rows}
+
+    posted_rows = Inventory.objects.filter(
+        week=week, county_item__category=category
+    ).select_related("county_item__item")
+
+    for inv in posted_rows:
+        prev = previous_by_item.get(inv.county_item_id)
+        starting_price = prev.end_price if prev else Decimal("0.00")
+        starting_inventory = prev.end_inventory if prev else Decimal("0.00")
+
+        def parse_field(field_name, fallback, allow_negative=False):
+            raw = request.POST.get(f"{field_name}_{inv.pk}")
+            if raw is None:
+                return None
+            raw = raw.strip()
+            if raw == "":
+                return Decimal("0.00")
+            try:
+                value = Decimal(raw)
+                if not allow_negative and value < 0:
+                    raise InvalidOperation
+                return value
+            except (InvalidOperation, TypeError):
+                messages.error(
+                    request,
+                    f"Invalid {field_name.replace('_', ' ')} for {inv.county_item.item.item_name} — reverted."
+                )
+                return fallback
+
+        price_value = parse_field("price", starting_price)
+        received_1_value = parse_field("received_1", Decimal("0.00"))
+        received_2_value = parse_field("received_2", Decimal("0.00"))
+        inventory_value = parse_field("inventory", starting_inventory)
+        deep_dive_value = request.POST.get(f"deep_dive_{inv.pk}", "")
+
+        if price_value is None:
+            continue
+
+        inv.end_price = price_value
+        inv.end_received_1 = received_1_value
+        inv.end_received_2 = received_2_value
+        inv.end_inventory = inventory_value
+        inv.deep_dive = deep_dive_value
+        inv.save()
+
+        if allow_name_edit:
+            new_display_name = request.POST.get(f"item_name_{inv.pk}", "").strip()
+            if new_display_name != inv.county_item.display_name:
+                inv.county_item.display_name = new_display_name
+
+            new_unit_name = request.POST.get(f"item_unit_{inv.pk}", "").strip()
+            if new_unit_name:
+                new_unit = Unit.get_or_create_matching(new_unit_name)
+                if new_unit != inv.county_item.unit:
+                    inv.county_item.unit = new_unit
+            else:
+                inv.county_item.unit = None
+
+            inv.county_item.save()
+
+        if allow_beginning_edit and prev:
+            def parse_begin(field_name, fallback):
+                raw = request.POST.get(f"{field_name}_{prev.pk}")
+                if raw is None:
+                    return fallback
+                raw = raw.strip()
+                if raw == "":
+                    return Decimal("0.00")
+                try:
+                    value = Decimal(raw)
+                    if value < 0:
+                        raise InvalidOperation
+                    return value
+                except (InvalidOperation, TypeError):
+                    return fallback
+
+            prev.end_price = parse_begin("begin_price", prev.end_price)
+            prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
+            prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
+            prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
+            prev.save()
 
 
 @login_required
@@ -58,80 +161,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         if not is_editable:
             raise PermissionDenied("This week is no longer editable.")
 
-        posted_rows = Inventory.objects.filter(
-            week=week, county_item__category=category
-        ).select_related("county_item__item")
-
-        for inv in posted_rows:
-            prev = previous_by_item.get(inv.county_item_id)
-            starting_price = prev.end_price if prev else Decimal("0.00")
-            starting_inventory = prev.end_inventory if prev else Decimal("0.00")
-
-            def parse_field(field_name, fallback, allow_negative=False):
-                raw = request.POST.get(f"{field_name}_{inv.pk}")
-                if raw is None:
-                    return None
-                try:
-                    value = Decimal(raw)
-                    if not allow_negative and value < 0:
-                        raise InvalidOperation
-                    return value
-                except (InvalidOperation, TypeError):
-                    messages.error(
-                        request,
-                        f"Invalid {field_name.replace('_', ' ')} for {inv.county_item.item.item_name} — reverted."
-                    )
-                    return fallback
-
-            price_value = parse_field("price", starting_price)
-            received_1_value = parse_field("received_1", Decimal("0.00"))
-            received_2_value = parse_field("received_2", Decimal("0.00"))
-            inventory_value = parse_field("inventory", starting_inventory)
-            deep_dive_value = request.POST.get(f"deep_dive_{inv.pk}", "")
-
-            if price_value is None:
-                continue  # this row wasn't submitted at all
-
-            inv.end_price = price_value
-            inv.end_received_1 = received_1_value
-            inv.end_received_2 = received_2_value
-            inv.end_inventory = inventory_value
-            inv.deep_dive = deep_dive_value
-            inv.save()
-
-            if allow_name_edit:
-                new_display_name = request.POST.get(f"item_name_{inv.pk}", "").strip()
-                if new_display_name != inv.county_item.display_name:
-                    inv.county_item.display_name = new_display_name
-
-                new_unit_name = request.POST.get(f"item_unit_{inv.pk}", "").strip()
-                if new_unit_name:
-                    new_unit = Unit.get_or_create_matching(new_unit_name)
-                    if new_unit != inv.county_item.unit:
-                        inv.county_item.unit = new_unit
-                else:
-                    inv.county_item.unit = None
-
-                inv.county_item.save()
-
-            if allow_beginning_edit and prev:
-                def parse_begin(field_name, fallback):
-                    raw = request.POST.get(f"{field_name}_{prev.pk}")
-                    if raw is None:
-                        return fallback
-                    try:
-                        value = Decimal(raw)
-                        if value < 0:
-                            raise InvalidOperation
-                        return value
-                    except (InvalidOperation, TypeError):
-                        return fallback
-
-                prev.end_price = parse_begin("begin_price", prev.end_price)
-                prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
-                prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
-                prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
-                prev.save()
+        save_sheet_fields(request, week, category, access)
 
         if week.status == 0:
             return redirect("weekly_inventory_category", category_id=category.pk)
@@ -142,7 +172,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         week=week,
         county_item__category=category,
         county_item__is_active=True,
-    ).select_related("county_item__item", "county_item__unit").order_by("county_item_id")
+    ).select_related("county_item__item", "county_item__unit").order_by("county_item__sort_order", "county_item_id")
 
     table_rows = []
     for row in current_rows:
@@ -156,6 +186,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         table_rows.append({
             "beginning_inventory_id": prev.pk if prev else None,
             "inventory_id": row.pk,
+            "county_item_id": row.county_item_id,
             "item_name": row.county_item.display, 
             "unit": row.county_item.unit.unit_name if row.county_item.unit else "",         
             "beginning_price": prev.end_price if prev else None,
@@ -203,11 +234,13 @@ def delete_item(request, inventory_id):
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
 
+    save_sheet_fields(request, week, inv.county_item.category, access)
+
     county_item = inv.county_item
     county_item.is_active = False
     county_item.save()
 
-    messages.success(request, f"{county_item.item.item_name} removed from this sheet.")
+    messages.success(request, f"{county_item.item.item_name} removed from this sheet.", extra_tags="undoable")
 
     request.session["last_action"] = {
         "type": "deactivate_county_item",
@@ -233,6 +266,8 @@ def add_item(request):
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
 
+    save_sheet_fields(request, week, category, access)
+
     item_name = request.POST.get("item_name", "").strip()
     unit_name = request.POST.get("item_unit", "").strip()
 
@@ -244,10 +279,15 @@ def add_item(request):
     unit = Unit.get_or_create_matching(unit_name) if unit_name else None
 
     county_item = CountyItem.objects.filter(item=item, category=category, unit=unit).first()
+    max_order = CountyItem.objects.filter(category=category).order_by("-sort_order").values_list("sort_order", flat=True).first() or 0
+
     if county_item is None:
-        county_item = CountyItem.objects.create(item=item, category=category, unit=unit, is_active=True)
+        county_item = CountyItem.objects.create(
+            item=item, category=category, unit=unit, is_active=True, sort_order=max_order + 1
+        )
     else:
         county_item.is_active = True
+        county_item.sort_order = max_order + 1
         county_item.save()
 
     def parse_starting(field_name):
@@ -312,6 +352,26 @@ def undo_last_action(request):
         messages.success(request, "Item restored.")
 
     return redirect(request.META.get("HTTP_REFERER", "dashboard"))
+
+
+@login_required
+@require_POST
+def reorder_items(request):
+    county = resolve_county(request)
+    category = get_object_or_404(CountyCategory, pk=request.POST.get("category_id"), county=county)
+    week = resolve_week(county)
+
+    access = get_user_access(request.user)
+    can_edit_previous = access.role in ("manager", "developer")
+    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    if not is_editable:
+        raise PermissionDenied("This week is no longer editable.")
+
+    ordered_ids = request.POST.getlist("county_item_id")
+    for index, county_item_id in enumerate(ordered_ids):
+        CountyItem.objects.filter(pk=county_item_id, category=category).update(sort_order=index)
+
+    return JsonResponse({"status": "ok"})
 
 
 @login_required

@@ -9,7 +9,7 @@
     {% for message in messages %}
     <li style="color: red;">
         {{ message }}
-        {% if request.session.last_action.type == "deactivate_county_item" %}
+        {% if "undoable" in message.tags %}
             <form method="post" action="{% url 'undo_last_action' %}" style="display: inline;">
                 {% csrf_token %}
                 <button type="submit" style="background:none; border:none; padding:0; color:blue; text-decoration:underline; cursor:pointer;">Undo?</button>
@@ -35,12 +35,13 @@
     {% csrf_token %}
     <table border="1" cellpadding="6">
         <tr>
-            <th colspan="2">Item</th>
+            <th colspan="3">Item</th>
             <th colspan="5">Beginning Inventory</th>
             <th colspan="5">Ending Inventory</th>
             <th colspan="2">Usage</th>
         </tr>
         <tr>
+            <th></th>
             <th>Item Name</th>
             <th>Unit</th>
             <th>Price</th>
@@ -56,8 +57,10 @@
             <th>Total Usage</th>
             <th>Deep Dive</th>
         </tr>
+        <tbody id="sortable-body">
         {% for row in table_rows %}
-        <tr class="inventory_row">
+        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}">
+            <td class="drag-handle" style="cursor: grab;">☰</td>
             <td>
                 {% if is_editable %}
                     <button type="submit"
@@ -75,30 +78,30 @@
             </td>
             <td>
                 {% if allow_name_edit %}
-                <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}" style="width: 70px;">
+                <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}" style="width: 70px;" class="unit-input">
                 {% else %}
-                {{ row.unit }}
-                {% endif %}
-            </td>
-            <td>$
-                {% if allow_beginning_edit %}
-                <input type="number" step="0.01" name="begin_price_{{ row.beginning_inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
-                {% else %}
-                {{ row.beginning_price|default_if_none:"0.00" }}
+                <span class="unit-text">{{ row.unit }}</span>
                 {% endif %}
             </td>
             <td>
                 {% if allow_beginning_edit %}
-                  <input type="number" step="0.01" name="begin_received_1_{{ row.beginning_inventory_id }}" value="{{ row.beginning_received_1|default:'0.00' }}">
+                $ <input type="number" step="0.01" name="begin_price_{{ row.beginning_inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
                 {% else %}
-                  {{ row.beginning_received_1|default_if_none:"0.00" }}
+                ${{ row.beginning_price|default_if_none:"0.00" }}
                 {% endif %}
             </td>
             <td>
                 {% if allow_beginning_edit %}
-                  <input type="number" step="0.01" name="begin_received_2_{{ row.beginning_inventory_id }}" value="{{ row.beginning_received_2|default:'0.00' }}">
+                <input type="number" step="0.01" name="begin_received_1_{{ row.beginning_inventory_id }}" value="{% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}">
                 {% else %}
-                  {{ row.beginning_received_2|default_if_none:"0.00" }}
+                    {% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}
+                {% endif %}
+            </td>
+            <td>
+                {% if allow_beginning_edit %}
+                <input type="number" step="0.01" name="begin_received_2_{{ row.beginning_inventory_id }}" value="{% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}">
+                {% else %}
+                    {% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}
                 {% endif %}
             </td>
             <td>
@@ -108,26 +111,26 @@
                   {{ row.beginning_inventory|default_if_none:"0.00" }}
                 {% endif %}
             </td>
-            <td style="{% if row.beginning_total == "0.00" %}background-color: red;{% endif %}">
+            <td class="beginning-total" style="{% if row.beginning_total == "0.00" %}background-color: lightcoral;{% endif %}">
                 ${{ row.beginning_total|default_if_none:"0.00" }}
             </td>
-            <td>$
+            <td>
                 {% if is_editable %}
-                    <input type="number" step="0.01" name="price_{{ row.inventory_id }}" value="{{ row.ending_price }}">
+                    $ <input type="number" step="0.01" name="price_{{ row.inventory_id }}" value="{{ row.ending_price }}">
                 {% else %}
-                    {{ row.ending_price }}
+                    ${{ row.ending_price }}
                 {% endif %}
             </td>
             <td>
                 {% if is_editable %}
-                    <input type="number" step="0.01" name="received_1_{{ row.inventory_id }}" value="{{ row.ending_received_1 }}">
+                <input type="number" step="0.01" name="received_1_{{ row.inventory_id }}" value="{% if row.ending_received_1 %}{{ row.ending_received_1 }}{% endif %}">
                 {% else %}
                     {{ row.ending_received_1 }}
                 {% endif %}
             </td>
             <td>
                 {% if is_editable %}
-                    <input type="number" step="0.01" name="received_2_{{ row.inventory_id }}" value="{{ row.ending_received_2 }}">
+                <input type="number" step="0.01" name="received_2_{{ row.inventory_id }}" value="{% if row.ending_received_2 %}{{ row.ending_received_2 }}{% endif %}">
                 {% else %}
                     {{ row.ending_received_2 }}
                 {% endif %}
@@ -140,10 +143,10 @@
                 {{ row.ending_inventory }}
                 {% endif %}
             </td>
-            <td style="{% if row.ending_total == "0.00" %}background-color: red;{% endif %}">
+            <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: red;{% endif %}">
                 ${{ row.ending_total }}
             </td>
-            <td style="{% if row.total_usage == "0.00" %}background-color: red;{% endif %}">
+            <td class="total-usage">
                 {{ row.total_usage|default_if_none:"0.00"}}
             </td>
             <td>
@@ -161,8 +164,9 @@
             </td>
         </tr>
         {% endfor %}
+        </tbody>
         <tr>
-            <td colspan="14">
+            <td colspan="15">
               {% if is_editable %}
               <button type="button" onclick="document.getElementById('add-item-row').style.display='table-row'">
                 Add Item
@@ -171,6 +175,7 @@
             </td>
           </tr>
           <tr id="add-item-row" style="display:none;">
+            <td></td>
             <td>
               <input type="text" name="item_name" list="item-options" placeholder="New item name" formaction="{% url 'add_item' %}">
             </td>
@@ -223,34 +228,151 @@
     <textarea id="deep-dive-textarea" rows="5" style="width: 300px;"></textarea><br><br>
     <button type="button" onclick="saveDeepDiveNote()">Save</button>
     <button type="button" onclick="document.getElementById('deep-dive-dialog').close()">Cancel</button>
-  </dialog>
+</dialog>
   
-  <script>
-  let currentDeepDiveId = null;
-  
-  function openDeepDiveModal(inventoryId) {
-      currentDeepDiveId = inventoryId;
-      const hiddenInput = document.getElementById('deep_dive_input_' + inventoryId);
-      document.getElementById('deep-dive-textarea').value = hiddenInput.value;
-      document.getElementById('deep-dive-dialog').showModal();
-  }
-  
-  function saveDeepDiveNote() {
-      const hiddenInput = document.getElementById('deep_dive_input_' + currentDeepDiveId);
-      const textarea = document.getElementById('deep-dive-textarea');
-      hiddenInput.value = textarea.value;
-  
-      const btn = document.getElementById('deep_dive_btn_' + currentDeepDiveId);
-      if (textarea.value.trim().length > 0) {
-          btn.textContent = 'Edit note';
-          btn.classList.add('has-note');
-      } else {
-          btn.textContent = 'Add note';
-          btn.classList.remove('has-note');
-      }
-  
-      document.getElementById('deep-dive-dialog').close();
-  }
-  </script>
+<script>
+    let currentDeepDiveId = null;
+
+    function openDeepDiveModal(inventoryId) {
+        currentDeepDiveId = inventoryId;
+        const hiddenInput = document.getElementById('deep_dive_input_' + inventoryId);
+        document.getElementById('deep-dive-textarea').value = hiddenInput.value;
+        document.getElementById('deep-dive-dialog').showModal();
+    }
+
+    function saveDeepDiveNote() {
+        const hiddenInput = document.getElementById('deep_dive_input_' + currentDeepDiveId);
+        const textarea = document.getElementById('deep-dive-textarea');
+        hiddenInput.value = textarea.value;
+
+        const btn = document.getElementById('deep_dive_btn_' + currentDeepDiveId);
+        if (textarea.value.trim().length > 0) {
+            btn.textContent = 'Edit note';
+            btn.classList.add('has-note');
+        } else {
+            btn.textContent = 'Add note';
+            btn.classList.remove('has-note');
+        }
+
+        document.getElementById('deep-dive-dialog').close();
+    }
+
+    function parseNum(input) {
+        if (!input) return 0;
+        const val = parseFloat(input.value);
+        return isNaN(val) ? 0 : val;
+    }
+
+    function getUnitText(tr) {
+        const unitInput = tr.querySelector('.unit-input');
+        if (unitInput) return unitInput.value;
+        const unitSpan = tr.querySelector('.unit-text');
+        return unitSpan ? unitSpan.textContent : '';
+    }
+    
+    function recalcRow(tr) {
+        const beginPrice = tr.querySelector('input[name^="begin_price_"]');
+        const beginInventory = tr.querySelector('input[name^="begin_inventory_"]');
+        const price = tr.querySelector('input[name^="price_"]');
+        const received1 = tr.querySelector('input[name^="received_1_"]');
+        const received2 = tr.querySelector('input[name^="received_2_"]');
+        const inventory = tr.querySelector('input[name^="inventory_"]');
+    
+        const beginningTotalCell = tr.querySelector('.beginning-total');
+        const endingTotalCell = tr.querySelector('.ending-total');
+        const usageCell = tr.querySelector('.total-usage');
+    
+        if (beginPrice && beginInventory && beginningTotalCell) {
+            const beginningTotal = parseNum(beginPrice) * parseNum(beginInventory);
+            beginningTotalCell.textContent = '$' + beginningTotal.toFixed(2);
+            beginningTotalCell.style.backgroundColor = beginningTotal === 0 ? 'lightcoral' : '';
+        }
+    
+        if (price && inventory && endingTotalCell) {
+            const endingTotal = parseNum(price) * parseNum(inventory);
+            endingTotalCell.textContent = '$' + endingTotal.toFixed(2);
+            endingTotalCell.style.backgroundColor = endingTotal === 0 ? 'lightcoral' : '';
+        }
+    
+        if (inventory && usageCell) {
+            const beginVal = beginInventory ? parseNum(beginInventory) : parseFloat(tr.querySelector('td:nth-child(6)').textContent) || 0;
+            const r1 = received1 ? parseNum(received1) : 0;
+            const r2 = received2 ? parseNum(received2) : 0;
+            const usage = (beginVal + r1 + r2) - parseNum(inventory);
+            usageCell.textContent = usage.toFixed(2) + ' ' + getUnitText(tr);
+            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'red' : ''; {% endcomment %}
+        }
+    }
+    
+    document.querySelectorAll('.inventory_row').forEach(function (tr) {
+        function updateFilledState(input) {
+            const filled = input.value === '' || parseFloat(input.value) === 0;
+            input.closest('td').classList.toggle('unfilled-cell', filled);
+        }
+    
+        tr.querySelectorAll('input').forEach(function (input) {
+            input.addEventListener('focus', function () {
+                tr.classList.add('active-row');
+            });
+            input.addEventListener('blur', function () {
+                tr.classList.remove('active-row');
+            });
+            input.addEventListener('input', function () {
+                recalcRow(tr);
+            });
+        });
+    
+        const priceAndInventorySelector = [
+            'input[name^="begin_price_"]',
+            'input[name^="price_"]',
+            'input[name^="begin_inventory_"]',
+            'input[name^="inventory_"]'
+        ].join(', ');
+    
+        tr.querySelectorAll(priceAndInventorySelector).forEach(function (input) {
+            input.addEventListener('input', function () {
+                updateFilledState(input);
+            });
+            updateFilledState(input);
+        });
+    
+        const beginPrice = tr.querySelector('input[name^="begin_price_"]');
+        const price = tr.querySelector('input[name^="price_"]');
+        if (beginPrice && price) {
+            price.dataset.autoFill = parseNum(price) === 0 ? 'true' : 'false';
+    
+            price.addEventListener('input', function () {
+                price.dataset.autoFill = 'false';
+            });
+    
+            beginPrice.addEventListener('input', function () {
+                if (price.dataset.autoFill === 'true') {
+                    price.value = beginPrice.value;
+                    recalcRow(tr);
+                }
+            });
+        }
+    
+        recalcRow(tr);
+    });
+
+    if (document.getElementById('sortable-body')) {
+        new Sortable(document.getElementById('sortable-body'), {
+            animation: 150,
+            handle: '.drag-handle',
+            onEnd: function () {
+                const ids = Array.from(document.querySelectorAll('#sortable-body tr')).map(
+                    row => row.dataset.countyItemId
+                );
+                const formData = new FormData();
+                ids.forEach(id => formData.append('county_item_id', id));
+                formData.append('category_id', '{{ category.pk }}');
+                formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+                fetch('{% url "reorder_items" %}', { method: 'POST', body: formData });
+            }
+        });
+    }
+</script>
 
 {% endblock %}

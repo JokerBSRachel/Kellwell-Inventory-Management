@@ -24,7 +24,7 @@ def rollover_county_week(county):
     Returns the newly created Week."""
 
     try:
-        old_week = Week.objects.get(county=county, status=0)
+        old_week = Week.objects.get(county=county, status=0, is_initial=False)
     except Week.DoesNotExist:
         raise ValueError(f"No open week found for {county}. Cannot roll over.")
     except Week.MultipleObjectsReturned:
@@ -44,7 +44,7 @@ def rollover_county_week(county):
             county_item=county_item,
             week=new_week,
             end_price=old_inventory.end_price if old_inventory else 0,
-            end_inventory=old_inventory.end_inventory if old_inventory else 0,
+            end_inventory=0,
             end_received_1=0,
             end_received_2=0,
         )
