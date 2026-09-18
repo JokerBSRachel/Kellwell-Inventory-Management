@@ -1,0 +1,46 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h1>{{ county }} Totals</h1>
+<h3>Week ending {{ week.end_date }}</h3>
+
+<table border="1" cellpadding="6">
+    <tr>
+        <th></th>
+        {% for col in food_columns %}
+        <th>{{ col.code_number }}</th>
+        {% endfor %}
+        <th>Food Total</th>
+        {% for col in nonfood_columns %}
+        <th>{{ col.code_number }}</th>
+        {% endfor %}
+        <th>Inventory Total</th>
+    </tr>
+    <tr>
+        <td><strong>Beginning</strong></td>
+        {% for col in food_columns %}
+        <td>${{ col.beginning|floatformat:2 }}</td>
+        {% endfor %}
+        <td><strong>${{ food_total_beginning|floatformat:2 }}</strong></td>
+        {% for col in nonfood_columns %}
+        <td>${{ col.beginning|floatformat:2 }}</td>
+        {% endfor %}
+        <td><strong>${{ grand_total_beginning|floatformat:2 }}</strong></td>
+    </tr>
+    <tr>
+        <td><strong>Ending</strong></td>
+        {% for col in food_columns %}
+        <td>${{ col.ending|floatformat:2 }}</td>
+        {% endfor %}
+        <td><strong>${{ food_total_ending|floatformat:2 }}</strong></td>
+        {% for col in nonfood_columns %}
+        <td>${{ col.ending|floatformat:2 }}</td>
+        {% endfor %}
+        <td><strong>${{ grand_total_ending|floatformat:2 }}</strong></td>
+    </tr>
+</table>
+
+{% include "inventory_system/_signoff.html" %}
+
+{% include "inventory_system/_page_tabs.html" %}
+{% endblock %}

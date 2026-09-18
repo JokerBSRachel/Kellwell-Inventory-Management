@@ -9,7 +9,9 @@ from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff
-from .services import rollover_county_week
+from .services import rollover_county_week, totals_by_code
+
+FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
 
 
 def save_sheet_fields(request, week, category, access):
@@ -179,10 +181,11 @@ def weekly_inventory(request, category_id=None, week_id=None):
     current_rows = Inventory.objects.filter(
         week=week,
         county_item__category=category,
-        county_item__is_active=True,
     ).select_related("county_item__item", "county_item__unit").order_by("county_item__sort_order", "county_item_id")
 
     table_rows = []
+    page_beginning_total = Decimal("0.00")
+    page_ending_total = Decimal("0.00")
     for row in current_rows:
         prev = previous_by_item.get(row.county_item_id)
         beginning_inventory = prev.end_inventory if prev else None
@@ -190,6 +193,15 @@ def weekly_inventory(request, category_id=None, week_id=None):
             total_usage = (beginning_inventory + row.end_received_1 + row.end_received_2) - row.end_inventory
         else:
             total_usage = None
+
+        # Keep the exact (unrounded) products for the page-total accumulator,
+        # and only round once, at display time — matches how Excel's SUM()
+        # works (sums the underlying exact cell values, not what's displayed)
+        # and avoids the "round each row, then sum the rounded rows" penny drift.
+        beginning_total_exact = (prev.end_price * prev.end_inventory) if prev else Decimal("0.00")
+        ending_total_exact = row.end_price * row.end_inventory
+        page_beginning_total += beginning_total_exact
+        page_ending_total += ending_total_exact
 
         table_rows.append({
             "beginning_inventory_id": prev.pk if prev else None,
@@ -201,24 +213,55 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "beginning_received_1": prev.end_received_1 if prev else None,
             "beginning_received_2": prev.end_received_2 if prev else None,
             "beginning_inventory": beginning_inventory,
-            "beginning_total": f"{(prev.end_price * prev.end_inventory):.2f}" if prev else "0.00",
+            "beginning_total": f"{beginning_total_exact:.2f}",
             "ending_price": row.end_price,
             "ending_received_1": row.end_received_1,
             "ending_received_2": row.end_received_2,
             "ending_inventory": row.end_inventory,
-            "ending_total": f"{(row.end_price * row.end_inventory):.2f}",
+            "ending_total": f"{ending_total_exact:.2f}",
             "total_usage": f"{total_usage:.2f}" if total_usage is not None else "0.00",
             "deep_dive": row.deep_dive,
         })
 
+    # If this is the LAST active subcategory under its FoodCode (e.g. 101-6 when a
+    # county's 101 code runs 101-1 through 101-6), also show that code's total
+    # across every subcategory beneath it — a checkpoint before moving to the next code.
+    sibling_subcategory_ids = list(CountyCategory.objects.filter(
+        county=county, code=category.code, is_active=True
+    ).values_list("subcategory_id", flat=True))
+    show_parent_total = category.subcategory_id == max(sibling_subcategory_ids, default=category.subcategory_id)
+
+    parent_beginning_excl_current = Decimal("0.00")
+    parent_ending_excl_current = Decimal("0.00")
+    if show_parent_total:
+        beginning_by_code = totals_by_code(county, previous_week, code_id=category.code_id)
+        ending_by_code = totals_by_code(county, week, code_id=category.code_id)
+        parent_beginning_total = beginning_by_code.get(category.code_id, {}).get("total") or Decimal("0.00")
+        parent_ending_total = ending_by_code.get(category.code_id, {}).get("total") or Decimal("0.00")
+        # Store as an offset (everything except this page's own rows) so the
+        # template's JS can add the live-edited current-page total on top of it.
+        parent_beginning_excl_current = parent_beginning_total - page_beginning_total
+        parent_ending_excl_current = parent_ending_total - page_ending_total
+
     unit_options = Unit.objects.filter(is_active=True)
     item_options = Item.objects.filter(is_active=True)
 
+    week_end_date = week.end_date.strftime("%m/%d/%y")
+    week_start_date = (week.end_date - timedelta(days=7)).strftime("%m/%d/%y")
+
     return render(request, "inventory_system/weekly_inventory.html", {
         "county": county,
+        "week_start_date": week_start_date,
+        "week_end_date": week_end_date,
         "week": week,
         "category": category,
         "table_rows": table_rows,
+        "page_beginning_total": f"{page_beginning_total:.2f}",
+        "page_ending_total": f"{page_ending_total:.2f}",
+        "show_parent_total": show_parent_total,
+        "parent_code_number": category.code.code_number,
+        "parent_beginning_excl_current": f"{parent_beginning_excl_current:.2f}",
+        "parent_ending_excl_current": f"{parent_ending_excl_current:.2f}",
         "is_editable": is_editable,
         "allow_beginning_edit": allow_beginning_edit, 
         "allow_name_edit": allow_name_edit,
@@ -236,8 +279,7 @@ def delete_item(request, inventory_id):
     category_id = inv.county_item.category_id
 
     access = get_user_access(request.user)
-    can_edit_previous = access.role in ("manager", "developer")
-    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    is_editable = is_week_editable(week, access)
 
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
@@ -248,11 +290,40 @@ def delete_item(request, inventory_id):
     county_item.is_active = False
     county_item.save()
 
+    def snapshot(row):
+        return {
+            "week_id": row.week_id,
+            "end_price": str(row.end_price),
+            "end_received_1": str(row.end_received_1),
+            "end_received_2": str(row.end_received_2),
+            "end_inventory": str(row.end_inventory),
+            "deep_dive": row.deep_dive,
+        }
+
+    deleted_snapshots = [snapshot(inv)]
+    inv.delete()
+
+    # If deleting from the previous (admin-editable) week, also remove the
+    # matching row from the current week — otherwise the current week's row
+    # would be left with no prior week to derive its Beginning values from.
+    if week.status == 1:
+        current_week = Week.objects.filter(
+            county=county, status=0, is_initial=False
+        ).order_by("-end_date").first()
+        if current_week:
+            current_inv = Inventory.objects.filter(
+                county_item=county_item, week=current_week
+            ).first()
+            if current_inv:
+                deleted_snapshots.append(snapshot(current_inv))
+                current_inv.delete()
+
     messages.success(request, f"{county_item.item.item_name} removed from this sheet.", extra_tags="undoable")
 
     request.session["last_action"] = {
-        "type": "deactivate_county_item",
+        "type": "delete_item",
         "county_item_id": county_item.pk,
+        "deleted_inventory": deleted_snapshots,
     }
 
     if week.status == 0:
@@ -266,11 +337,10 @@ def delete_item(request, inventory_id):
 def add_item(request):
     county = resolve_county(request)
     category = get_object_or_404(CountyCategory, pk=request.POST.get("category_id"), county=county)
-    week = resolve_week(county)
+    week = resolve_week(county, request.POST.get("week_id"))
 
     access = get_user_access(request.user)
-    can_edit_previous = access.role in ("manager", "developer")
-    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    is_editable = is_week_editable(week, access)
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
 
@@ -336,13 +406,31 @@ def add_item(request):
         inv.end_inventory = entered_inventory
         inv.save()
 
+    # If adding to the previous (admin-editable) week, also create the matching
+    # row in the current week — same carry-forward values rollover would have
+    # used, so it doesn't just silently stay missing from the current sheet.
+    if week.status == 1:
+        current_week = Week.objects.filter(
+            county=county, status=0, is_initial=False
+        ).order_by("-end_date").first()
+        if current_week:
+            Inventory.objects.get_or_create(
+                county_item=county_item,
+                week=current_week,
+                defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
+                          "end_received_2": Decimal("0.00"), "end_inventory": Decimal("0.00")},
+            )
+
     request.session["last_action"] = {
         "type": "create_county_item",
         "county_item_id": county_item.pk,
         "week_id": week.pk,
     }
 
-    return redirect("weekly_inventory_category", category_id=category.pk)
+    if week.status == 0:
+        return redirect("weekly_inventory_category", category_id=category.pk)
+    else:
+        return redirect("weekly_inventory_week", week_id=week.pk, category_id=category.pk)
 
 
 @login_required
@@ -353,10 +441,23 @@ def undo_last_action(request):
         messages.error(request, "Nothing to undo.")
         return redirect(request.META.get("HTTP_REFERER", "dashboard"))
 
-    if action["type"] == "deactivate_county_item":
+    if action["type"] == "delete_item":
         county_item = get_object_or_404(CountyItem, pk=action["county_item_id"])
         county_item.is_active = True
         county_item.save()
+
+        for snap in action["deleted_inventory"]:
+            Inventory.objects.get_or_create(
+                county_item=county_item,
+                week_id=snap["week_id"],
+                defaults={
+                    "end_price": Decimal(snap["end_price"]),
+                    "end_received_1": Decimal(snap["end_received_1"]),
+                    "end_received_2": Decimal(snap["end_received_2"]),
+                    "end_inventory": Decimal(snap["end_inventory"]),
+                    "deep_dive": snap["deep_dive"],
+                },
+            )
         messages.success(request, "Item restored.")
 
     return redirect(request.META.get("HTTP_REFERER", "dashboard"))
@@ -367,11 +468,10 @@ def undo_last_action(request):
 def reorder_items(request):
     county = resolve_county(request)
     category = get_object_or_404(CountyCategory, pk=request.POST.get("category_id"), county=county)
-    week = resolve_week(county)
+    week = resolve_week(county, request.POST.get("week_id"))
 
     access = get_user_access(request.user)
-    can_edit_previous = access.role in ("manager", "developer")
-    is_editable = (week.status == 0) or (week.status == 1 and can_edit_previous)
+    is_editable = is_week_editable(week, access)
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
 
@@ -502,7 +602,56 @@ def sign_off_week(request, week_id):
 
     WeeklySignoff.objects.get_or_create(week=week, defaults={"manager": manager})
 
-    if week.status == 0:
-        return redirect("daily_sales")
-    else:
-        return redirect("daily_sales_week", week_id=week.pk)
+    return redirect(request.META.get("HTTP_REFERER", "daily_sales"))
+
+
+@login_required
+def totals(request, week_id=None):
+    county = resolve_county(request)
+    week = resolve_week(county, week_id)
+
+    previous_week = Week.objects.filter(
+        county=county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+
+    beginning_by_code = totals_by_code(county, previous_week)
+    ending_by_code = totals_by_code(county, week)
+    code_ids = set(beginning_by_code) | set(ending_by_code)
+
+    columns = []
+    for code_id in code_ids:
+        source = ending_by_code.get(code_id) or beginning_by_code.get(code_id)
+        beginning = beginning_by_code.get(code_id, {}).get("total") or Decimal("0.00")
+        ending = ending_by_code.get(code_id, {}).get("total") or Decimal("0.00")
+        columns.append({
+            "code_number": source["county_item__category__code__code_number"],
+            "code_name": source["county_item__category__code__code_name"],
+            "beginning": beginning,
+            "ending": ending,
+        })
+    columns.sort(key=lambda c: c["code_number"])
+
+    food_columns = [c for c in columns if c["code_number"] < FOOD_CODE_CEILING]
+    nonfood_columns = [c for c in columns if c["code_number"] >= FOOD_CODE_CEILING]
+
+    food_total_beginning = sum((c["beginning"] for c in food_columns), Decimal("0.00"))
+    food_total_ending = sum((c["ending"] for c in food_columns), Decimal("0.00"))
+    grand_total_beginning = sum((c["beginning"] for c in columns), Decimal("0.00"))
+    grand_total_ending = sum((c["ending"] for c in columns), Decimal("0.00"))
+
+    signoff = WeeklySignoff.objects.filter(week=week).select_related("manager").first()
+    can_sign = hasattr(request.user, "manager_profile")
+
+    return render(request, "inventory_system/totals.html", {
+        "county": county,
+        "week": week,
+        "food_columns": food_columns,
+        "nonfood_columns": nonfood_columns,
+        "food_total_beginning": food_total_beginning,
+        "food_total_ending": food_total_ending,
+        "grand_total_beginning": grand_total_beginning,
+        "grand_total_ending": grand_total_ending,
+        "signoff": signoff,
+        "can_sign": can_sign,
+        "active_report_tab": "totals",
+    })

@@ -55,15 +55,7 @@
     {% endif %}
 </form>
 
-<hr>
-{% if signoff %}
-<p>Signed off by {{ signoff.manager }} at {{ signoff.signed_at }}</p>
-{% elif can_sign %}
-<form method="post" action="{% url 'sign_off_week' week.pk %}">
-    {% csrf_token %}
-    <button type="submit">Sign off this week</button>
-</form>
-{% endif %}
+{% include "inventory_system/_signoff.html" %}
 
 <script>
     function recalcDailyTotals() {

@@ -35,4 +35,6 @@ urlpatterns = [
     path('daily-sales/', inventory_views.daily_sales, name='daily_sales'),
     path('daily-sales/week/<int:week_id>/', inventory_views.daily_sales, name='daily_sales_week'),
     path('daily-sales/sign-off/<int:week_id>/', inventory_views.sign_off_week, name='sign_off_week'),
+    path('totals/', inventory_views.totals, name='totals'),
+    path('totals/week/<int:week_id>/', inventory_views.totals, name='totals_week'),
 ]

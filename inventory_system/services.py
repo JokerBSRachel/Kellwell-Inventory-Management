@@ -1,5 +1,36 @@
 from datetime import timedelta
+from django.db.models import Sum, F
 from .models import Week, CountyItem, Inventory, CountyMeal, DailySale
+
+
+def totals_by_code(county, target_week, code_id=None):
+    """Sums (price * inventory) across a county's active Inventory rows for a given
+    week, grouped by FoodCode. Pass code_id to scope to just one code's total.
+    Returns {code_id: {"county_item__category__code__code_number": ..,
+                        "county_item__category__code__code_name": .., "total": Decimal}}.
+    """
+    if not target_week:
+        return {}
+
+    qs = Inventory.objects.filter(
+        week=target_week,
+        county_item__category__county=county,
+        county_item__category__is_active=True,
+        county_item__is_active=True,
+    )
+    if code_id is not None:
+        qs = qs.filter(county_item__category__code_id=code_id)
+
+    rows = (
+        qs.values(
+            "county_item__category__code_id",
+            "county_item__category__code__code_number",
+            "county_item__category__code__code_name",
+        )
+        .annotate(total=Sum(F("end_price") * F("end_inventory")))
+    )
+    return {r["county_item__category__code_id"]: r for r in rows}
+
 
 def ensure_initial_weeks(county):
     """Creates (if needed) the hidden bootstrap week and the true first

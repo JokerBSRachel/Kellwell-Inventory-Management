@@ -59,14 +59,14 @@
         </tr>
         <tbody id="sortable-body">
         {% for row in table_rows %}
-        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}">
+        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}" data-beginning-exact="{{ row.beginning_total_exact }}" data-ending-exact="{{ row.ending_total_exact }}">
             <td class="drag-handle" style="cursor: grab;">☰</td>
             <td>
                 {% if is_editable %}
                     <button type="submit"
                             style="display: inline;"
                             formaction="{% url 'delete_item' row.inventory_id %}"
-                            onclick="return confirm('Remove {{ row.item_name }} from this sheet? \nWARNING: This will discard any unsaved edits.');">
+                            onclick="return confirm('Remove {{ row.item_name }} from this sheet?{% if week.status == 1 %} This will also remove it from the current week.{% endif %}');">
                     X
                     </button>
                 {% endif %}
@@ -196,10 +196,34 @@
             </td>
             <td>
               <input type="hidden" name="category_id" value="{{ category.pk }}" formaction="{% url 'add_item' %}">
+              <input type="hidden" name="week_id" value="{{ week.pk }}" formaction="{% url 'add_item' %}">
               <button type="submit" formaction="{% url 'add_item' %}">Add</button>
             </td>
             <td colspan="7"></td>
           </tr>
+          <tr>
+                <td colspan="7"><strong></strong></td>
+                <td><strong>{{ week_start_date }}</strong></td>
+                <td colspan="4"><strong></strong></td>
+                <td><strong>{{ week_end_date }}</strong></td>
+                <td colspan="2"></td>
+          </tr>
+          <tr id="page-totals-row">
+                <td colspan="7" style="text-align: right;"><strong>Page Total</strong></td>
+                <td id="page-beginning-total"><strong>${{ page_beginning_total }}</strong></td>
+                <td colspan="4" style="text-align: right;"><strong>Page Total</strong></td>
+                <td id="page-ending-total"><strong>${{ page_ending_total }}</strong></td>
+                <td colspan="2"></td>
+            </tr>
+            {% if show_parent_total %}
+            <tr id="parent-totals-row" data-beginning-excl-current="{{ parent_beginning_excl_current }}" data-ending-excl-current="{{ parent_ending_excl_current }}">
+                <td colspan="7" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
+                <td id="parent-beginning-total"><strong>$0.00</strong></td>
+                <td colspan="4" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
+                <td id="parent-ending-total"><strong>$0.00</strong></td>
+                <td colspan="2"></td>
+            </tr>
+            {% endif %}
     </table>
 
     {% if is_editable %}
@@ -288,6 +312,48 @@
             usageCell.textContent = usage.toFixed(2) + ' ' + getUnitText(tr);
             {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'lightcoral' : ''; {% endcomment %}
         }
+
+        recalcPageTotals();
+    }
+
+    function parseCurrencyText(text) {
+        // Strips the leading "$" that beginning-total/ending-total cells are rendered with.
+        const val = parseFloat((text || '').replace('$', ''));
+        return isNaN(val) ? 0 : val;
+    }
+
+    function recalcPageTotals() {
+        let beginningSum = 0;
+        let endingSum = 0;
+
+        document.querySelectorAll('.inventory_row').forEach(function (tr) {
+            const beginPrice = tr.querySelector('input[name^="begin_price_"]');
+            const beginInventory = tr.querySelector('input[name^="begin_inventory_"]');
+            if (beginPrice && beginInventory) {
+                beginningSum += parseNum(beginPrice) * parseNum(beginInventory);
+            } else {
+                beginningSum += parseFloat(tr.dataset.beginningExact) || 0;
+            }
+
+            const price = tr.querySelector('input[name^="price_"]');
+            const inventory = tr.querySelector('input[name^="inventory_"]');
+            if (price && inventory) {
+                endingSum += parseNum(price) * parseNum(inventory);
+            } else {
+                endingSum += parseFloat(tr.dataset.endingExact) || 0;
+            }
+        });
+
+        document.getElementById('page-beginning-total').innerHTML = '<strong>$' + beginningSum.toFixed(2) + '</strong>';
+        document.getElementById('page-ending-total').innerHTML = '<strong>$' + endingSum.toFixed(2) + '</strong>';
+
+        const parentRow = document.getElementById('parent-totals-row');
+        if (parentRow) {
+            const beginningExclCurrent = parseFloat(parentRow.dataset.beginningExclCurrent) || 0;
+            const endingExclCurrent = parseFloat(parentRow.dataset.endingExclCurrent) || 0;
+            document.getElementById('parent-beginning-total').innerHTML = '<strong>$' + (beginningExclCurrent + beginningSum).toFixed(2) + '</strong>';
+            document.getElementById('parent-ending-total').innerHTML = '<strong>$' + (endingExclCurrent + endingSum).toFixed(2) + '</strong>';
+        }
     }
     
     document.querySelectorAll('.inventory_row').forEach(function (tr) {
@@ -342,6 +408,8 @@
         recalcRow(tr);
     });
 
+    recalcPageTotals(); // ensures totals init correctly even if this category has zero rows
+
     if (document.getElementById('sortable-body')) {
         new Sortable(document.getElementById('sortable-body'), {
             animation: 150,
@@ -353,6 +421,7 @@
                 const formData = new FormData();
                 ids.forEach(id => formData.append('county_item_id', id));
                 formData.append('category_id', '{{ category.pk }}');
+                formData.append('week_id', '{{ week.pk }}');
                 formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
 
                 fetch('{% url "reorder_items" %}', { method: 'POST', body: formData });

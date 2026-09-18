@@ -17,7 +17,7 @@
                 {% csrf_token %}
                 <button type="submit">Sign out</button>
             </form>
-            
+
             {% if nav_counties.count > 1 %}
             <p>You are viewing {{ nav_county }}.<br>
                 <a href="{% url 'dashboard' %}?switch=1">Switch county</a>
@@ -55,7 +55,13 @@
                         {% endif %}
                     </li>
                     {% endfor %}
-                    <li><a href="#">Totals</a></li>
+                    <li>
+                        {% if w.status == 0 %}
+                        <a href="{% url 'totals' %}">Totals</a>
+                        {% else %}
+                        <a href="{% url 'totals_week' w.pk %}">Totals</a>
+                        {% endif %}
+                    </li>
                     <li>
                         {% if w.status == 0 %}
                         <a href="{% url 'daily_sales' %}">Daily Sales</a>

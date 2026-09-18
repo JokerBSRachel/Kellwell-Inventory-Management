@@ -13,7 +13,11 @@
       {% endif %}
     {% endfor %}
 
-    <a href="#" class="tab-link">Totals</a>
+    {% if week.status == 0 %}
+        <a href="{% url 'totals' %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab{% endif %}">Totals</a>
+    {% else %}
+        <a href="{% url 'totals_week' week.pk %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab{% endif %}">Totals</a>
+    {% endif %}
 
     {% if week.status == 0 %}
       <a href="{% url 'daily_sales' %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab{% endif %}">Daily Sales</a>
