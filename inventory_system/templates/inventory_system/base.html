@@ -17,36 +17,61 @@
                 {% csrf_token %}
                 <button type="submit">Sign out</button>
             </form>
-
-            {% if nav_county %}
-            <p><strong><a href="{% url 'weekly_inventory' %}">{{ nav_county }} Inventory - {{ nav_week.end_date }}</a></strong></p>
-            <ul>
-                {% for cat in nav_categories %}
-                <li><a href="{% url 'weekly_inventory_category' cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
-                </li>
-                {% endfor %}
-            </ul>
-            {% if not nav_county.is_template %}
-            <ul>
-                <li><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></li>
-                {% if nav_role == "manager" or nav_role == "developer" %}
-                    {% if nav_previous_week %}
-                        <li><a href="{% url 'weekly_inventory_week' nav_previous_week.pk nav_categories.0.pk %}">Edit previous week</a></li>
-                    {% endif %}
-                {% endif %}
-                <li><a href="#">Totals</a></li>
-                <li><a href="#">Daily Sales</a></li>
-                <li><a href="#">Weekly Invoices Recap</a></li>
-                <li><a href="#">WOR</a></li>
-            </ul>
-            {% endif %}
-            {% endif %}
-
+            
             {% if nav_counties.count > 1 %}
             <p>You are viewing {{ nav_county }}.<br>
-                <a href="{% url 'dashboard' %}">Switch county</a>
+                <a href="{% url 'dashboard' %}?switch=1">Switch county</a>
             </p>
             {% endif %}
+
+            {% if nav_county %}
+            <p><strong>{{ nav_county }} Inventory</strong></p>
+
+            {% if not nav_county.is_template %}
+            <p><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></p>
+            {% endif %}
+
+            <div class="week-nav">
+                {% for w in nav_weeks %}
+                <details{% if w.pk == nav_viewed_week_id %} open{% endif %}>
+                    <summary>
+                        {% if nav_categories %}
+                        <a href="{% if w.status == 0 %}{% url 'weekly_inventory_category' nav_categories.0.pk %}{% else %}{% url 'weekly_inventory_week' w.pk nav_categories.0.pk %}{% endif %}">
+                            Week ending {{ w.end_date }}
+                            {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}(Locked){% endif %}
+                        </a>
+                        {% else %}
+                        Week ending {{ w.end_date }}
+                        {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}(Locked){% endif %}
+                        {% endif %}
+                    </summary>
+                <ul>
+                    {% for cat in nav_categories %}
+                    <li>
+                        {% if w.status == 0 %}
+                        <a href="{% url 'weekly_inventory_category' cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+                        {% else %}
+                        <a href="{% url 'weekly_inventory_week' w.pk cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                    <li><a href="#">Totals</a></li>
+                    <li>
+                        {% if w.status == 0 %}
+                        <a href="{% url 'daily_sales' %}">Daily Sales</a>
+                        {% else %}
+                        <a href="{% url 'daily_sales_week' w.pk %}">Daily Sales</a>
+                        {% endif %}
+                    </li>
+                    <li><a href="#">Weekly Invoices Recap</a></li>
+                    <li><a href="#">WOR</a></li>
+                </ul>
+            </details>
+            {% endfor %}
+            </div>
+            {% endif %}
+
+            
         </nav>
 
         <main style="flex: 1; padding: 20px;">

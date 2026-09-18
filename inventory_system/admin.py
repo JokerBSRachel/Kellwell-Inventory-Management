@@ -6,7 +6,7 @@ from .models import (
     State, Region, Manager, County, Employee, Week,
     WeeklyPayroll, WeeklySignoff, Item, FoodCode,
     CountyCategory, CountyItem, Inventory, Invoice,
-    InvoiceLineItem, Meal, CountyMeal, DailySale, Unit
+    InvoiceLineItem, Meal, CountyMeal, DailySale, Unit, Vendor
 )
 from datetime import date, timedelta
 
@@ -359,6 +359,12 @@ class UnitAdmin(NoDeleteAdmin):
     search_fields = ("unit_name",)
 
 
+@admin.register(Vendor)
+class VendorAdmin(NoDeleteAdmin):
+    list_display = ("vendor_name", "is_active")
+    search_fields = ("vendor_name",)
+
+
 @admin.register(Meal)
 class MealAdmin(NoDeleteAdmin):
     list_display = ("meal_name", "is_active")
@@ -391,7 +397,7 @@ class InventoryAdmin(NoDeleteOnlyAdmin):
 
 @admin.register(Invoice)
 class InvoiceAdmin(NoDeleteOnlyAdmin):
-    list_display = ("vendor_name", "week", "invoice_number", "tax")
+    list_display = ("vendor", "week", "invoice_number", "tax")
 
 
 @admin.register(InvoiceLineItem)

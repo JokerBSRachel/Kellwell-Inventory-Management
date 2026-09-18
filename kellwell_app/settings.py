@@ -32,7 +32,7 @@ ALLOWED_HOSTS = []
 
 # User login
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'dashboard'   # placeholder — the URL name for the inventory view we haven't built yet
+LOGIN_REDIRECT_URL = 'dashboard'   # routes to the county picker, or straight into the inventory view if only one county applies
 LOGOUT_REDIRECT_URL = 'login'
 
 

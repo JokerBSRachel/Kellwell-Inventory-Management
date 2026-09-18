@@ -60,6 +60,14 @@ def resolve_county(request, county_id=None):
     return None
 
 
+def is_week_editable(week, access) -> bool:
+    """Whether the current user's role allows editing this week: the open week
+    is editable by everyone, and the previous (status 1) week is editable only
+    by managers/developers."""
+    can_edit_previous = access.role in ("manager", "developer")
+    return (week.status == 0) or (week.status == 1 and can_edit_previous)
+
+
 def resolve_week(county, week_id=None):
     """Given a county and an optional week_id from the URL, return the Week to display.
     Defaults to the most recent (current) week for that county."""

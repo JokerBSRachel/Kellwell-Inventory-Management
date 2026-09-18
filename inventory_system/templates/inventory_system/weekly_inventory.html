@@ -143,7 +143,7 @@
                 {{ row.ending_inventory }}
                 {% endif %}
             </td>
-            <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: red;{% endif %}">
+            <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: lightcoral;{% endif %}">
                 ${{ row.ending_total }}
             </td>
             <td class="total-usage">
@@ -207,21 +207,7 @@
     {% endif %}
 </form>
 
-<div class="category-tabs">
-    {% for cat in nav_categories %}
-      {% if week.status == 0 %}
-        <a href="{% url 'weekly_inventory_category' cat.pk %}"
-           class="tab-link{% if cat.pk == category.pk %} active-tab{% endif %}">
-          {{ cat.code.code_number }}-{{ cat.subcategory_id }}
-        </a>
-      {% else %}
-        <a href="{% url 'weekly_inventory_week' week.pk cat.pk %}"
-           class="tab-link{% if cat.pk == category.pk %} active-tab{% endif %}">
-          {{ cat.code.code_number }}-{{ cat.subcategory_id }}
-        </a>
-      {% endif %}
-    {% endfor %}
-  </div>
+{% include "inventory_system/_page_tabs.html" %}
 
 <dialog id="deep-dive-dialog">
     <label for="deep-dive-textarea"><strong>Note</strong></label><br>
@@ -300,7 +286,7 @@
             const r2 = received2 ? parseNum(received2) : 0;
             const usage = (beginVal + r1 + r2) - parseNum(inventory);
             usageCell.textContent = usage.toFixed(2) + ' ' + getUnitText(tr);
-            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'red' : ''; {% endcomment %}
+            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'lightcoral' : ''; {% endcomment %}
         }
     }
     

@@ -1,0 +1,97 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h1>{{ county }} Daily Sales</h1>
+<h3>Week ending {{ week.end_date }}</h3>
+
+{% if messages %}
+<ul>
+    {% for message in messages %}
+    <li style="color: red;">{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    <table border="1" cellpadding="6">
+        <tr>
+            <th>Day</th>
+            <th>Date</th>
+            {% for cm in county_meals %}
+            <th>{{ cm.meal.meal_name }}</th>
+            {% endfor %}
+            <th>Daily Total</th>
+        </tr>
+        <tbody id="sales-body">
+        {% for row in grid_rows %}
+        <tr>
+            <td>{{ row.date|date:"l" }}</td>
+            <td>{{ row.date|date:"m/d/y" }}</td>
+            {% for cell in row.cells %}
+            <td>
+                {% if is_editable %}
+                <input type="number" min="0"step="1" name="sale_{{ cell.daily_sale_id }}" value="{% if cell.count %}{{ cell.count }}{% endif %}" class="sale-input">
+                {% else %}
+                {{ cell.count }}
+                {% endif %}
+            </td>
+            {% endfor %}
+            <td class="row-total">{{ row.row_total }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+        <tr>
+            <td colspan="2" style="text-align: right;"><strong>TOTALS</strong></td>
+            {% for entry in meal_totals_display %}
+            <td class="meal-total">{{ entry.total }}</td>
+            {% endfor %}
+            <td id="grand-total"><strong>{{ grand_total }}</strong></td>
+        </tr>
+    </table>
+
+    {% if is_editable %}
+    <button type="submit">Save</button>
+    {% endif %}
+</form>
+
+<hr>
+{% if signoff %}
+<p>Signed off by {{ signoff.manager }} at {{ signoff.signed_at }}</p>
+{% elif can_sign %}
+<form method="post" action="{% url 'sign_off_week' week.pk %}">
+    {% csrf_token %}
+    <button type="submit">Sign off this week</button>
+</form>
+{% endif %}
+
+<script>
+    function recalcDailyTotals() {
+        const mealCount = {{ county_meals|length }};
+        const mealTotals = new Array(mealCount).fill(0);
+        let grand = 0;
+
+        document.querySelectorAll('#sales-body tr').forEach(function (tr) {
+            const inputs = tr.querySelectorAll('.sale-input');
+            let rowTotal = 0;
+            inputs.forEach(function (input, idx) {
+                const val = parseInt(input.value) || 0;
+                rowTotal += val;
+                mealTotals[idx] += val;
+            });
+            grand += rowTotal;
+            tr.querySelector('.row-total').textContent = rowTotal;
+        });
+
+        document.querySelectorAll('.meal-total').forEach(function (cell, idx) {
+            cell.textContent = mealTotals[idx];
+        });
+        document.getElementById('grand-total').innerHTML = '<strong>' + grand + '</strong>';
+    }
+
+    document.querySelectorAll('.sale-input').forEach(function (input) {
+        input.addEventListener('input', recalcDailyTotals);
+    });
+</script>
+{% include "inventory_system/_page_tabs.html" %}
+{% endblock %}

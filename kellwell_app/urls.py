@@ -32,4 +32,7 @@ urlpatterns = [
     path('inventory/add-item/', inventory_views.add_item, name='add_item'),
     path('inventory/roll/', inventory_views.roll_to_next_week, name='roll_to_next_week'),
     path('inventory/reorder/', inventory_views.reorder_items, name='reorder_items'),
+    path('daily-sales/', inventory_views.daily_sales, name='daily_sales'),
+    path('daily-sales/week/<int:week_id>/', inventory_views.daily_sales, name='daily_sales_week'),
+    path('daily-sales/sign-off/<int:week_id>/', inventory_views.sign_off_week, name='sign_off_week'),
 ]

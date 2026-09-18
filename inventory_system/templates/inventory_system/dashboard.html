@@ -12,8 +12,6 @@
         <li><a href="?county_id={{ c.pk }}">{{ c }}</a></li>
         {% endfor %}
     </ul>
-    {% elif county %}
-    <p>Welcome back — you're viewing {{ county }}.</p>
     {% endif %}
 </div>
 {% endblock %}

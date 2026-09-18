@@ -211,6 +211,35 @@ class Unit(models.Model):
         return cls.objects.create(unit_name=name.strip(), is_active=True)
 
 
+class Vendor(models.Model):
+    vendor_name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-is_active", "vendor_name"]
+
+    def __str__(self):
+        return self.vendor_name
+
+    @classmethod
+    def find_exact_match(cls, name):
+        target = _normalize_name(name)
+        for vendor in cls.objects.all():
+            if _normalize_name(vendor.vendor_name) == target:
+                return vendor
+        return None
+
+    @classmethod
+    def get_or_create_matching(cls, name):
+        existing = cls.find_exact_match(name)
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                existing.save()
+            return existing
+        return cls.objects.create(vendor_name=name.strip(), is_active=True)
+
+
 class FoodCode(models.Model):
     code_number = models.PositiveSmallIntegerField(unique=True) 
     code_name = models.CharField(max_length=100)
@@ -290,15 +319,15 @@ class Inventory(models.Model):
 
 class Invoice(models.Model):
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
-    vendor_name = models.CharField(max_length=100)
+    vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     invoice_number = models.CharField(max_length=100)
     tax = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
 
     class Meta:
-        ordering = ["-week__end_date", "week__county__county_name", "week__county__state__state_abbreviation", "vendor_name", "invoice_number"]
+        ordering = ["-week__end_date", "week__county__county_name", "week__county__state__state_abbreviation", "vendor__vendor_name", "invoice_number"]
 
     def __str__(self):
-        return str(self.vendor_name) + " - " + str(self.week)
+        return str(self.vendor) + " - " + str(self.week)
 
 
 class InvoiceLineItem(models.Model):
@@ -310,7 +339,7 @@ class InvoiceLineItem(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["invoice", "code"], name="unique_invoice_code")
         ]
-        ordering = ["-invoice__week__end_date", "invoice__week__county__county_name", "invoice__week__county__state__state_abbreviation", "invoice__vendor_name", "code__code_number"]
+        ordering = ["-invoice__week__end_date", "invoice__week__county__county_name", "invoice__week__county__state__state_abbreviation", "invoice__vendor__vendor_name", "code__code_number"]
 
     def __str__(self):
         return str(self.invoice) + " - " + str(self.code)

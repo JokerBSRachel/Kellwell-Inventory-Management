@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -6,8 +7,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 
-from .access import get_user_access, resolve_county, resolve_week
-from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit
+from .access import get_user_access, resolve_county, resolve_week, is_week_editable
+from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff
 from .services import rollover_county_week
 
 
@@ -117,13 +118,20 @@ def save_sheet_fields(request, week, category, access):
 def dashboard(request):
     access = get_user_access(request.user)
     county_id = request.GET.get("county_id")
+    force_picker = "switch" in request.GET
 
-    county = resolve_county(request, county_id)
-    if county:
-        request.session["selected_county_id"] = county.pk
+    if county_id:
+        county = resolve_county(request, county_id)
+        if county:
+            request.session["selected_county_id"] = county.pk
+            return redirect("weekly_inventory")
+    elif not force_picker:
+        county = resolve_county(request)
+        if county:
+            request.session["selected_county_id"] = county.pk
+            return redirect("weekly_inventory")
 
     return render(request, "inventory_system/dashboard.html", {
-        "county": county,
         "counties": access.counties,
         "show_picker": access.counties.count() > 1,
     })
@@ -390,3 +398,111 @@ def roll_to_next_week(request):
         return redirect("weekly_inventory")
 
     return render(request, "inventory_system/roll_confirm.html", {"county": county})
+
+
+@login_required
+def daily_sales(request, week_id=None):
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    week = resolve_week(county, week_id)
+    is_editable = is_week_editable(week, access)
+
+    county_meals = list(
+        CountyMeal.objects.filter(county=county, is_active=True).select_related("meal").order_by("pk")
+    )
+    dates = [week.end_date - timedelta(days=6 - i) for i in range(7)]
+
+    # Self-heal: make sure a DailySale row exists for every (meal, date) in this
+    # week, in case rollover hasn't run yet (e.g. a county's very first week).
+    for county_meal in county_meals:
+        for sale_date in dates:
+            DailySale.objects.get_or_create(
+                county_meal=county_meal, week=week, sale_date=sale_date,
+                defaults={"sale_count": 0},
+            )
+
+    if request.method == "POST":
+        if not is_editable:
+            raise PermissionDenied("This week is no longer editable.")
+
+        sales = DailySale.objects.filter(week=week, county_meal__in=county_meals)
+        for sale in sales:
+            raw = request.POST.get(f"sale_{sale.pk}", "").strip()
+            if raw == "":
+                sale.sale_count = 0
+            else:
+                try:
+                    value = int(raw)
+                    if value < 0:
+                        raise ValueError
+                    sale.sale_count = value
+                except ValueError:
+                    messages.error(
+                        request,
+                        f"Invalid count for {sale.county_meal.meal} on {sale.sale_date} — reverted."
+                    )
+                    continue
+            sale.save()
+
+        if week.status == 0:
+            return redirect("daily_sales")
+        else:
+            return redirect("daily_sales_week", week_id=week.pk)
+
+    sales = DailySale.objects.filter(week=week, county_meal__in=county_meals)
+    sales_by_date_meal = {(s.sale_date, s.county_meal_id): s for s in sales}
+
+    meal_totals = [0] * len(county_meals)
+    grid_rows = []
+    grand_total = 0
+
+    for sale_date in dates:
+        row_cells = []
+        row_total = 0
+        for idx, cm in enumerate(county_meals):
+            sale = sales_by_date_meal.get((sale_date, cm.pk))
+            count = sale.sale_count if sale else 0
+            row_cells.append({"daily_sale_id": sale.pk if sale else None, "count": count})
+            row_total += count
+            meal_totals[idx] += count
+        grand_total += row_total
+        grid_rows.append({"date": sale_date, "cells": row_cells, "row_total": row_total})
+
+    meal_totals_display = [
+        {"meal_name": cm.meal.meal_name, "total": total}
+        for cm, total in zip(county_meals, meal_totals)
+    ]
+
+    signoff = WeeklySignoff.objects.filter(week=week).select_related("manager").first()
+    can_sign = hasattr(request.user, "manager_profile")
+
+    return render(request, "inventory_system/daily_sales.html", {
+        "county": county,
+        "week": week,
+        "county_meals": county_meals,
+        "grid_rows": grid_rows,
+        "meal_totals_display": meal_totals_display,
+        "grand_total": grand_total,
+        "is_editable": is_editable,
+        "signoff": signoff,
+        "can_sign": can_sign,
+        "active_report_tab": "daily_sales",
+    })
+
+
+@login_required
+@require_POST
+def sign_off_week(request, week_id):
+    county = resolve_county(request)
+    week = get_object_or_404(Week, pk=week_id, county=county)
+
+    manager = getattr(request.user, "manager_profile", None)
+    if manager is None:
+        raise PermissionDenied("Only a manager can sign off a week.")
+
+    WeeklySignoff.objects.get_or_create(week=week, defaults={"manager": manager})
+
+    if week.status == 0:
+        return redirect("daily_sales")
+    else:
+        return redirect("daily_sales_week", week_id=week.pk)

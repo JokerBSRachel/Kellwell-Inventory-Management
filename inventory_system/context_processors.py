@@ -12,15 +12,18 @@ def sidebar_context(request):
 
     week = None
     categories = []
+    weeks = []
+    viewed_week_id = None
     if county:
         week = Week.objects.filter(county=county).order_by("-end_date").first()
         categories = CountyCategory.objects.filter(county=county, is_active=True)
+        weeks = Week.objects.filter(county=county, is_initial=False).order_by("-end_date")
 
-    previous_week = None
-    if county and week:
-        previous_week = Week.objects.filter(
-            county=county, end_date__lt=week.end_date
-        ).order_by("-end_date").first()
+        url_week_id = None
+        if request.resolver_match:
+            url_week_id = request.resolver_match.kwargs.get("week_id")
+        viewed_week_id = int(url_week_id) if url_week_id else (week.pk if week else None)
+
 
     return {
         "nav_county": county,
@@ -28,5 +31,6 @@ def sidebar_context(request):
         "nav_role": access.role,
         "nav_week": week,
         "nav_categories": categories,
-        "nav_previous_week": previous_week,
+        "nav_weeks": weeks,
+        "nav_viewed_week_id": viewed_week_id,
     }
