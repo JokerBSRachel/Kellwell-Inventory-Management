@@ -8,7 +8,7 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
-from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff
+from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff, FoodCode
 from .services import rollover_county_week, totals_by_code, round_cents
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
@@ -40,6 +40,13 @@ def save_sheet_fields(request, week, category, access):
 
     for inv in posted_rows:
         prev = previous_by_item.get(inv.county_item_id)
+        # A brand-new item (no previous-week row yet) is treated like the true
+        # first-tracking-week bootstrap case for THIS row only — matches the
+        # same rule weekly_inventory's display logic uses.
+        row_is_new = inv.is_new_item
+        row_allow_beginning_edit = allow_beginning_edit or (is_editable and row_is_new)
+        row_allow_name_edit = row_allow_beginning_edit or allow_name_edit
+
         starting_price = prev.end_price if prev else Decimal("0.00")
         starting_inventory = prev.end_inventory if prev else Decimal("0.00")
 
@@ -78,7 +85,7 @@ def save_sheet_fields(request, week, category, access):
         inv.deep_dive = deep_dive_value
         inv.save()
 
-        if allow_name_edit:
+        if row_allow_name_edit:
             new_display_name = request.POST.get(f"item_name_{inv.pk}", "").strip()
             if new_display_name != inv.county_item.display_name:
                 inv.county_item.display_name = new_display_name
@@ -93,9 +100,9 @@ def save_sheet_fields(request, week, category, access):
 
             inv.county_item.save()
 
-        if allow_beginning_edit and prev:
+        if row_allow_beginning_edit:
             def parse_begin(field_name, fallback):
-                raw = request.POST.get(f"{field_name}_{prev.pk}")
+                raw = request.POST.get(f"{field_name}_{inv.pk}")
                 if raw is None:
                     return fallback
                 raw = raw.strip()
@@ -109,11 +116,24 @@ def save_sheet_fields(request, week, category, access):
                 except (InvalidOperation, TypeError):
                     return fallback
 
-            prev.end_price = parse_begin("begin_price", prev.end_price)
-            prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
-            prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
-            prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
-            prev.save()
+            if prev is None:
+                # Brand-new item: there's no previous-week row to update, so
+                # create one from the entered Beginning values — same as the
+                # true first-week bootstrap flow does.
+                Inventory.objects.create(
+                    county_item=inv.county_item,
+                    week=previous_week,
+                    end_price=parse_begin("begin_price", Decimal("0.00")),
+                    end_received_1=parse_begin("begin_received_1", Decimal("0.00")),
+                    end_received_2=parse_begin("begin_received_2", Decimal("0.00")),
+                    end_inventory=parse_begin("begin_inventory", Decimal("0.00")),
+                )
+            else:
+                prev.end_price = parse_begin("begin_price", prev.end_price)
+                prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
+                prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
+                prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
+                prev.save()
 
 
 @login_required
@@ -194,6 +214,14 @@ def weekly_inventory(request, category_id=None, week_id=None):
         else:
             total_usage = None
 
+        # A brand-new item (no previous-week row yet) is treated like the
+        # true first-tracking-week bootstrap case for THIS row only — anyone
+        # editing the sheet can set its name/unit/beginning values, since
+        # there's no carried-forward data yet for a manager to own.
+        row_is_new = row.is_new_item
+        row_allow_beginning_edit = allow_beginning_edit or (is_editable and row_is_new)
+        row_allow_name_edit = row_allow_beginning_edit or allow_name_edit
+
         # Keep the exact (unrounded) products for the page-total accumulator,
         # and only round once, at display time — matches how Excel's SUM()
         # works (sums the underlying exact cell values, not what's displayed)
@@ -204,11 +232,12 @@ def weekly_inventory(request, category_id=None, week_id=None):
         page_ending_total += ending_total_exact
 
         table_rows.append({
-            "beginning_inventory_id": prev.pk if prev else None,
             "inventory_id": row.pk,
             "county_item_id": row.county_item_id,
             "item_name": row.county_item.display, 
             "unit": row.county_item.unit.unit_name if row.county_item.unit else "",         
+            "allow_beginning_edit": row_allow_beginning_edit,
+            "allow_name_edit": row_allow_name_edit,
             "beginning_price": prev.end_price if prev else None,
             "beginning_received_1": prev.end_received_1 if prev else None,
             "beginning_received_2": prev.end_received_2 if prev else None,
@@ -224,7 +253,6 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "total_usage": f"{total_usage:.2f}" if total_usage is not None else "0.00",
             "deep_dive": row.deep_dive,
         })
-
     # If this is the LAST active subcategory under its FoodCode (e.g. 101-6 when a
     # county's 101 code runs 101-1 through 101-6), also show that code's total
     # across every subcategory beneath it — a checkpoint before moving to the next code.
@@ -399,13 +427,14 @@ def add_item(request):
         county_item=county_item,
         week=week,
         defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
-                  "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory},
+                  "end_received_2": Decimal("0.00"), "end_inventory": entered_inventory, "is_new_item": True},
     )
     if not created:
         inv.end_price = entered_price
         inv.end_received_1 = Decimal("0.00")
         inv.end_received_2 = Decimal("0.00")
         inv.end_inventory = entered_inventory
+        inv.is_new_item = True
         inv.save()
 
     # If adding to the previous (admin-editable) week, also create the matching
@@ -420,7 +449,7 @@ def add_item(request):
                 county_item=county_item,
                 week=current_week,
                 defaults={"end_price": entered_price, "end_received_1": Decimal("0.00"),
-                          "end_received_2": Decimal("0.00"), "end_inventory": Decimal("0.00")},
+                          "end_received_2": Decimal("0.00"), "end_inventory": Decimal("0.00"), "is_new_item": True},
             )
 
     request.session["last_action"] = {
@@ -620,14 +649,18 @@ def totals(request, week_id=None):
     ending_by_code = totals_by_code(county, week)
     code_ids = set(beginning_by_code) | set(ending_by_code)
 
+    county_codes = FoodCode.objects.filter(
+        pk__in=CountyCategory.objects.filter(county=county, is_active=True).values_list("code_id", flat=True)
+    ).distinct()
+
+
     columns = []
-    for code_id in code_ids:
-        source = ending_by_code.get(code_id) or beginning_by_code.get(code_id)
-        beginning = beginning_by_code.get(code_id, {}).get("total") or Decimal("0.00")
-        ending = ending_by_code.get(code_id, {}).get("total") or Decimal("0.00")
+    for code in county_codes:
+        beginning = beginning_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
+        ending = ending_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
         columns.append({
-            "code_number": source["county_item__category__code__code_number"],
-            "code_name": source["county_item__category__code__code_name"],
+            "code_number": code.code_number,
+            "code_name": code.code_name,
             "beginning": beginning,
             "ending": ending,
         })

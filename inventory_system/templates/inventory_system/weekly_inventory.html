@@ -70,43 +70,43 @@
                     X
                     </button>
                 {% endif %}
-                {% if allow_name_edit %}
+                {% if row.allow_name_edit %}
                 <input type="text" name="item_name_{{ row.inventory_id }}" value="{{ row.item_name }}" style="width: 110px;">
                 {% else %}
                     {{ row.item_name }}
                 {% endif %}
             </td>
             <td>
-                {% if allow_name_edit %}
+                {% if row.allow_name_edit %}
                 <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}" style="width: 70px;" class="unit-input">
                 {% else %}
                 <span class="unit-text">{{ row.unit }}</span>
                 {% endif %}
             </td>
             <td>
-                {% if allow_beginning_edit %}
-                $ <input type="number" step="0.01" name="begin_price_{{ row.beginning_inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
+                {% if row.allow_beginning_edit %}
+                $ <input type="number" step="0.01" name="begin_price_{{ row.inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
                 {% else %}
                 ${{ row.beginning_price|default_if_none:"0.00" }}
                 {% endif %}
             </td>
             <td>
-                {% if allow_beginning_edit %}
-                <input type="number" step="0.01" name="begin_received_1_{{ row.beginning_inventory_id }}" value="{% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}">
+                {% if row.allow_beginning_edit %}
+                <input type="number" step="0.01" name="begin_received_1_{{ row.inventory_id }}" value="{% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}">
                 {% else %}
                     {% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}
                 {% endif %}
             </td>
             <td>
-                {% if allow_beginning_edit %}
-                <input type="number" step="0.01" name="begin_received_2_{{ row.beginning_inventory_id }}" value="{% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}">
+                {% if row.allow_beginning_edit %}
+                <input type="number" step="0.01" name="begin_received_2_{{ row.inventory_id }}" value="{% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}">
                 {% else %}
                     {% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}
                 {% endif %}
             </td>
             <td class="beginning-inventory-text">
-                {% if allow_beginning_edit %}
-                  <input type="number" step="0.01" name="begin_inventory_{{ row.beginning_inventory_id }}" value="{{ row.beginning_inventory|default:'0.00' }}">
+                {% if row.allow_beginning_edit %}
+                  <input type="number" step="0.01" name="begin_inventory_{{ row.inventory_id }}" value="{{ row.beginning_inventory|default:'0.00' }}">
                 {% else %}
                   {{ row.beginning_inventory|default_if_none:"0.00" }}
                 {% endif %}

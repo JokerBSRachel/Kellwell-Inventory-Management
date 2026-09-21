@@ -306,6 +306,7 @@ class Inventory(models.Model):
     end_received_2 = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     end_inventory = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     deep_dive = models.TextField(blank=True)
+    is_new_item = models.BooleanField(default=False) 
 
     class Meta:
         verbose_name_plural = "Inventory"
