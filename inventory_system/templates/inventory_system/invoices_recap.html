@@ -1,0 +1,306 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h1>{{ county }} Weekly Invoice Recap</h1>
+<h3>Week ending {{ week.end_date }}</h3>
+
+{% if messages %}
+<ul>
+    {% for message in messages %}
+    <li style="color: red;">{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<datalist id="vendor-options">
+    {% for opt in vendor_options %}
+        <option value="{{ opt.vendor_name }}">
+    {% endfor %}
+</datalist>
+
+<form method="post">
+    {% csrf_token %}
+    <table border="1" cellpadding="6">
+        <tr>
+            <th colspan="2">Invoice</th>
+            <th colspan="{{ food_codes|length }}">Food Items</th>
+            <th></th>
+            <th colspan="{{ nonfood_codes|length }}">Non-Food Items</th>
+            <th></th>
+            <th></th>
+            <th></th>
+        </tr>
+        <tr>
+            <th>Vendor Name</th>
+            <th>Invoice Number</th>
+            {% for code in food_codes %}
+            <th>{{ code.code_number }}-{{ code.code_name }}</th>
+            {% endfor %}
+            <th>Total - 100's</th>
+            {% for code in nonfood_codes %}
+            <th>{{ code.code_number }}-{{ code.code_name }}</th>
+            {% endfor %}
+            <th>Tax</th>
+            <th>Total Non-food</th>
+            <th>Total all Categories</th>
+        </tr>
+        <tbody id="invoice-body">
+        {% for row in grid_rows %}
+        <tr class="invoice_row" data-invoice-id="{{ row.invoice_id }}">
+            <td>
+                {% if is_editable %}
+                <button type="submit"
+                        style="display: inline;"
+                        formaction="{% url 'delete_invoice' row.invoice_id %}"
+                        onclick="return confirm('Remove this invoice from the sheet?');">
+                X
+                </button>
+                <input type="text" list="vendor-options" name="vendor_{{ row.invoice_id }}" value="{{ row.vendor_name }}" style="width: 120px;">
+                {% else %}
+                {{ row.vendor_name }}
+                {% endif %}
+            </td>
+            <td>
+                {% if is_editable %}
+                <input type="text" name="invoice_number_{{ row.invoice_id }}" value="{{ row.invoice_number }}" style="width: 100px;">
+                {% else %}
+                {{ row.invoice_number }}
+                {% endif %}
+            </td>
+            {% for cell in row.food_cells %}
+            <td>
+                {% if is_editable %}
+                <input type="number" step="0.01" class="amount-input food-amount-input" data-code-id="{{ cell.code_id }}" name="amount_{{ cell.code_id }}_{{ row.invoice_id }}" value="{% if cell.amount %}{{ cell.amount }}{% endif %}">
+                {% else %}
+                {% if cell.amount %}{{ cell.amount }}{% endif %}
+                {% endif %}
+            </td>
+            {% endfor %}
+            <td class="row-food-total">${{ row.food_total }}</td>
+            {% for cell in row.nonfood_cells %}
+            <td>
+                {% if is_editable %}
+                <input type="number" step="0.01" class="amount-input nonfood-amount-input" data-code-id="{{ cell.code_id }}" name="amount_{{ cell.code_id }}_{{ row.invoice_id }}" value="{% if cell.amount %}{{ cell.amount }}{% endif %}">
+                {% else %}
+                {% if cell.amount %}{{ cell.amount }}{% endif %}
+                {% endif %}
+            </td>
+            {% endfor %}
+            <td>
+                {% if is_editable %}
+                <input type="number" step="0.01" class="tax-input" name="tax_{{ row.invoice_id }}" value="{% if row.tax %}{{ row.tax }}{% endif %}">
+                {% else %}
+                {% if row.tax %}{{ row.tax }}{% endif %}
+                {% endif %}
+            </td>
+            <td class="row-nonfood-total">${{ row.nonfood_total }}</td>
+            <td class="row-all-total">${{ row.all_total }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+        <tr>
+            <td colspan="15">
+              {% if is_editable %}
+              <button type="button" onclick="document.getElementById('add-invoice-row').style.display='table-row'">
+                Add Invoice
+              </button>
+              {% endif %}
+            </td>
+        </tr>
+        <tr id="add-invoice-row" style="display:none;">
+            <td>
+                <input type="text" list="vendor-options" name="vendor_name" placeholder="Vendor name" formaction="{% url 'add_invoice' %}">
+            </td>
+            <td>
+                <input type="text" name="invoice_number" placeholder="Invoice #" formaction="{% url 'add_invoice' %}">
+                <input type="hidden" name="week_id" value="{{ week.pk }}" formaction="{% url 'add_invoice' %}">
+                <button type="submit" formaction="{% url 'add_invoice' %}">Add</button>
+            </td>
+            <td colspan="13"></td>
+        </tr>
+        <tr id="sheet-total-row">
+            <td colspan="2" style="text-align: right;"><strong>Sheet Total</strong></td>
+            {% for code in food_codes %}
+            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="true"><strong>${{ code.sheet_total }}</strong></td>
+            {% endfor %}
+            <td id="sheet-food-total"><strong>${{ sheet_food_total }}</strong></td>
+            {% for code in nonfood_codes %}
+            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="false"><strong>${{ code.sheet_total }}</strong></td>
+            {% endfor %}
+            <td id="sheet-tax-total"><strong>${{ sheet_tax_total }}</strong></td>
+            <td id="sheet-nonfood-total"><strong>${{ sheet_nonfood_total }}</strong></td>
+            <td id="sheet-all-total"><strong>${{ sheet_all_total }}</strong></td>
+        </tr>
+        <tr>
+            <td colspan="2" style="text-align: right;">Beginning Inventory</td>
+            {% for code in food_codes %}
+            <td>${{ code.beginning }}</td>
+            {% endfor %}
+            <td>${{ beginning_food_total }}</td>
+            {% for code in nonfood_codes %}
+            <td>${{ code.beginning }}</td>
+            {% endfor %}
+            <td></td>
+            <td>${{ beginning_nonfood_total }}</td>
+            <td>${{ beginning_all_total }}</td>
+        </tr>
+        <tr>
+            <td colspan="2" style="text-align: right;">Total of Sheet and Beginning Inventory</td>
+            {% for code in food_codes %}
+            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning }}</td>
+            {% endfor %}
+            <td id="sheet-and-beginning-food-total" data-beginning="{{ beginning_food_total_exact }}">${{ total_sheet_and_beginning_food }}</td>
+            {% for code in nonfood_codes %}
+            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning }}</td>
+            {% endfor %}
+            <td id="sheet-and-beginning-tax-total">${{ sheet_tax_total }}</td>
+            <td id="sheet-and-beginning-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}">${{ total_sheet_and_beginning_nonfood }}</td>
+            <td id="sheet-and-beginning-all-total">${{ total_sheet_and_beginning_all }}</td>
+        </tr>
+        <tr>
+            <td colspan="2" style="text-align: right;">Ending Inventory</td>
+            {% for code in food_codes %}
+            <td>${{ code.ending }}</td>
+            {% endfor %}
+            <td>${{ ending_food_total }}</td>
+            {% for code in nonfood_codes %}
+            <td>${{ code.ending }}</td>
+            {% endfor %}
+            <td></td>
+            <td>${{ ending_nonfood_total }}</td>
+            <td>${{ ending_all_total }}</td>
+        </tr>
+        <tr>
+            <td colspan="2" style="text-align: right;"><strong>Cost for the Week</strong></td>
+            {% for code in food_codes %}
+            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week }}</strong></td>
+            {% endfor %}
+            <td id="cost-for-week-food-total" data-beginning="{{ beginning_food_total_exact }}" data-ending="{{ ending_food_total_exact }}"><strong>${{ cost_for_week_food }}</strong></td>
+            {% for code in nonfood_codes %}
+            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week }}</strong></td>
+            {% endfor %}
+            <td id="cost-for-week-tax-total"><strong>${{ sheet_tax_total }}</strong></td>
+            <td id="cost-for-week-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}" data-ending="{{ ending_nonfood_total_exact }}"><strong>${{ cost_for_week_nonfood }}</strong></td>
+            <td id="cost-for-week-all-total"><strong>${{ cost_for_week_all }}</strong></td>
+        </tr>
+        
+    </table>
+
+    {% if is_editable %}
+    <button type="submit">Save</button>
+    {% endif %}
+</form>
+
+{% include "inventory_system/_signoff.html" %}
+
+{% include "inventory_system/_page_tabs.html" %}
+
+<script>
+    function parseAmt(input) {
+        if (!input) return 0;
+        const val = parseFloat(input.value);
+        return isNaN(val) ? 0 : val;
+    }
+
+    function recalcInvoiceRow(tr) {
+        let foodTotal = 0;
+        tr.querySelectorAll('.food-amount-input').forEach(function (input) { foodTotal += parseAmt(input); });
+
+        let nonfoodTotal = 0;
+        tr.querySelectorAll('.nonfood-amount-input').forEach(function (input) { nonfoodTotal += parseAmt(input); });
+        nonfoodTotal += parseAmt(tr.querySelector('.tax-input'));
+
+        const allTotal = foodTotal + nonfoodTotal;
+
+        tr.querySelector('.row-food-total').textContent = '$' + foodTotal.toFixed(2);
+        tr.querySelector('.row-nonfood-total').textContent = '$' + nonfoodTotal.toFixed(2);
+        tr.querySelector('.row-all-total').textContent = '$' + allTotal.toFixed(2);
+
+        recalcSheetTotals();
+    }
+
+    function recalcSheetTotals() {
+        let grandFoodTotal = 0;
+        let grandNonfoodTotal = 0;
+
+        document.querySelectorAll('.sheet-total-cell').forEach(function (cell) {
+            const codeId = cell.dataset.codeId;
+            let colTotal = 0;
+            document.querySelectorAll('.amount-input[data-code-id="' + codeId + '"]').forEach(function (input) {
+                colTotal += parseAmt(input);
+            });
+            cell.innerHTML = '<strong>$' + colTotal.toFixed(2) + '</strong>';
+
+            if (cell.dataset.isFood === 'true') {
+                grandFoodTotal += colTotal;
+            } else {
+                grandNonfoodTotal += colTotal;
+            }
+
+            const sheetAndBeginningCell = document.getElementById('sheet-and-beginning-' + codeId);
+            if (sheetAndBeginningCell) {
+                const beginning = parseFloat(sheetAndBeginningCell.dataset.beginning) || 0;
+                sheetAndBeginningCell.textContent = '$' + (colTotal + beginning).toFixed(2);
+            }
+
+            const costCell = document.getElementById('cost-for-week-' + codeId);
+            if (costCell) {
+                const beginning = parseFloat(costCell.dataset.beginning) || 0;
+                const ending = parseFloat(costCell.dataset.ending) || 0;
+                costCell.innerHTML = '<strong>$' + (colTotal + beginning - ending).toFixed(2) + '</strong>';
+            }
+        });
+
+        let grandTaxTotal = 0;
+        document.querySelectorAll('.tax-input').forEach(function (input) { grandTaxTotal += parseAmt(input); });
+
+        // Sheet Total's own Total Non-food/Total all DO include tax.
+        // The two derived rows below (Total of Sheet and Beginning, Cost for
+        // the Week) do NOT — tax has no beginning/ending inventory concept.
+        const sheetNonfoodExclTax = grandNonfoodTotal;
+        const sheetNonfoodWithTax = grandNonfoodTotal + grandTaxTotal;
+
+        document.getElementById('sheet-food-total').innerHTML = '<strong>$' + grandFoodTotal.toFixed(2) + '</strong>';
+        document.getElementById('sheet-tax-total').innerHTML = '<strong>$' + grandTaxTotal.toFixed(2) + '</strong>';
+        document.getElementById('sheet-nonfood-total').innerHTML = '<strong>$' + sheetNonfoodWithTax.toFixed(2) + '</strong>';
+        document.getElementById('sheet-all-total').innerHTML = '<strong>$' + (grandFoodTotal + sheetNonfoodWithTax).toFixed(2) + '</strong>';
+        document.getElementById('sheet-and-beginning-tax-total').textContent = '$' + grandTaxTotal.toFixed(2);
+        document.getElementById('cost-for-week-tax-total').innerHTML = '<strong>$' + grandTaxTotal.toFixed(2) + '</strong>';
+
+        const sabFoodCell = document.getElementById('sheet-and-beginning-food-total');
+        const sabFoodBeginning = parseFloat(sabFoodCell.dataset.beginning) || 0;
+        const sabFood = grandFoodTotal + sabFoodBeginning;
+        sabFoodCell.textContent = '$' + sabFood.toFixed(2);
+
+        const sabNonfoodCell = document.getElementById('sheet-and-beginning-nonfood-total');
+        const sabNonfoodBeginning = parseFloat(sabNonfoodCell.dataset.beginning) || 0;
+        const sabNonfood = sheetNonfoodExclTax + sabNonfoodBeginning;
+        sabNonfoodCell.textContent = '$' + sabNonfood.toFixed(2);
+
+        document.getElementById('sheet-and-beginning-all-total').textContent = '$' + (sabFood + sabNonfood).toFixed(2);
+
+        const cfwFoodCell = document.getElementById('cost-for-week-food-total');
+        const cfwFoodBeginning = parseFloat(cfwFoodCell.dataset.beginning) || 0;
+        const cfwFoodEnding = parseFloat(cfwFoodCell.dataset.ending) || 0;
+        const cfwFood = grandFoodTotal + cfwFoodBeginning - cfwFoodEnding;
+        cfwFoodCell.innerHTML = '<strong>$' + cfwFood.toFixed(2) + '</strong>';
+
+        const cfwNonfoodCell = document.getElementById('cost-for-week-nonfood-total');
+        const cfwNonfoodBeginning = parseFloat(cfwNonfoodCell.dataset.beginning) || 0;
+        const cfwNonfoodEnding = parseFloat(cfwNonfoodCell.dataset.ending) || 0;
+        const cfwNonfood = sheetNonfoodExclTax + cfwNonfoodBeginning - cfwNonfoodEnding;
+        cfwNonfoodCell.innerHTML = '<strong>$' + cfwNonfood.toFixed(2) + '</strong>';
+
+        document.getElementById('cost-for-week-all-total').innerHTML = '<strong>$' + (cfwFood + cfwNonfood).toFixed(2) + '</strong>';
+    }
+
+    document.querySelectorAll('.invoice_row').forEach(function (tr) {
+        tr.querySelectorAll('.amount-input, .tax-input').forEach(function (input) {
+            input.addEventListener('focus', function () { tr.classList.add('active-row'); });
+            input.addEventListener('blur', function () { tr.classList.remove('active-row'); });
+            input.addEventListener('input', function () { recalcInvoiceRow(tr); });
+        });
+    });
+</script>
+
+{% endblock %}

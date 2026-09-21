@@ -69,7 +69,14 @@
                         <a href="{% url 'daily_sales_week' w.pk %}">Daily Sales</a>
                         {% endif %}
                     </li>
-                    <li><a href="#">Weekly Invoices Recap</a></li>
+                    <li>
+                        {% if w.status == 0 %}
+                        <a href="{% url 'invoices_recap' %}">Weekly Invoices Recap</a>
+                        {% else %}
+                        <a href="{% url 'invoices_recap_week' w.pk %}">Weekly Invoices Recap</a>
+                        {% endif %}
+                    </li>
+                    
                     <li><a href="#">WOR</a></li>
                 </ul>
             </details>

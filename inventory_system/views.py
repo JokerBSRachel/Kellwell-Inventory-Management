@@ -8,7 +8,8 @@ from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
-from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff, FoodCode
+from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, \
+                    DailySale, WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor
 from .services import rollover_county_week, totals_by_code, round_cents
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
@@ -690,3 +691,263 @@ def totals(request, week_id=None):
         "can_sign": can_sign,
         "active_report_tab": "totals",
     })
+
+
+def save_invoice_fields(request, week, access, county_codes, invoices):
+    is_editable = is_week_editable(week, access)
+    if not is_editable:
+        return
+
+    def parse_amount(field_name, allow_negative=False):
+        raw = request.POST.get(field_name, "").strip()
+        if raw == "":
+            return Decimal("0.00")
+        try:
+            value = Decimal(raw)
+            if not allow_negative and value < 0:
+                return Decimal("0.00")
+            return value
+        except InvalidOperation:
+            return Decimal("0.00")
+
+    for invoice in invoices:
+        vendor_name = request.POST.get(f"vendor_{invoice.pk}", "").strip()
+        if vendor_name:
+            vendor = Vendor.get_or_create_matching(vendor_name)
+            if vendor != invoice.vendor:
+                invoice.vendor = vendor
+
+        invoice.invoice_number = request.POST.get(f"invoice_number_{invoice.pk}", "").strip()
+        invoice.tax = parse_amount(f"tax_{invoice.pk}")
+        invoice.save()
+
+        # Line item amounts CAN be negative (credit memos from a vendor).
+        for code in county_codes:
+            amount = parse_amount(f"amount_{code.pk}_{invoice.pk}", allow_negative=True)
+            InvoiceLineItem.objects.filter(invoice=invoice, code=code).update(amount=amount)
+
+
+@login_required
+def invoices_recap(request, week_id=None):
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    week = resolve_week(county, week_id)
+    is_editable = is_week_editable(week, access)
+
+    county_codes = list(FoodCode.objects.filter(
+        pk__in=CountyCategory.objects.filter(county=county, is_active=True).values_list("code_id", flat=True)
+    ).distinct().order_by("code_number"))
+    food_codes = [c for c in county_codes if c.code_number < FOOD_CODE_CEILING]
+    nonfood_codes = [c for c in county_codes if c.code_number >= FOOD_CODE_CEILING]
+
+    invoices = list(Invoice.objects.filter(week=week).select_related("vendor").order_by("pk"))
+
+    # Self-heal: make sure every invoice has a line item for every active code,
+    # in case a category was added to the county after this invoice was created.
+    for invoice in invoices:
+        for code in county_codes:
+            InvoiceLineItem.objects.get_or_create(invoice=invoice, code=code, defaults={"amount": Decimal("0.00")})
+
+    if request.method == "POST":
+        if not is_editable:
+            raise PermissionDenied("This week is no longer editable.")
+
+        save_invoice_fields(request, week, access, county_codes, invoices)
+
+        if week.status == 0:
+            return redirect("invoices_recap")
+        else:
+            return redirect("invoices_recap_week", week_id=week.pk)
+
+    line_items_by_invoice = {}
+    for li in InvoiceLineItem.objects.filter(invoice__in=invoices):
+        line_items_by_invoice.setdefault(li.invoice_id, {})[li.code_id] = li.amount
+
+    sheet_totals = {code.pk: Decimal("0.00") for code in county_codes}
+    sheet_tax_total = Decimal("0.00")
+
+    grid_rows = []
+    for invoice in invoices:
+        amounts = line_items_by_invoice.get(invoice.pk, {})
+
+        food_cells = []
+        row_food_total = Decimal("0.00")
+        for code in food_codes:
+            amt = amounts.get(code.pk, Decimal("0.00"))
+            food_cells.append({"code_id": code.pk, "amount": amt})
+            row_food_total += amt
+            sheet_totals[code.pk] += amt
+
+        nonfood_cells = []
+        row_nonfood_total = Decimal("0.00")
+        for code in nonfood_codes:
+            amt = amounts.get(code.pk, Decimal("0.00"))
+            nonfood_cells.append({"code_id": code.pk, "amount": amt})
+            row_nonfood_total += amt
+            sheet_totals[code.pk] += amt
+        row_nonfood_total += invoice.tax
+        sheet_tax_total += invoice.tax
+
+        row_all_total = row_food_total + row_nonfood_total
+
+        grid_rows.append({
+            "invoice_id": invoice.pk,
+            "vendor_name": invoice.vendor.vendor_name if invoice.vendor else "",
+            "invoice_number": invoice.invoice_number,
+            "food_cells": food_cells,
+            "nonfood_cells": nonfood_cells,
+            "tax": invoice.tax,
+            "food_total": str(round_cents(row_food_total)),
+            "nonfood_total": str(round_cents(row_nonfood_total)),
+            "all_total": str(round_cents(row_all_total)),
+        })
+
+    sheet_food_total = sum((sheet_totals[c.pk] for c in food_codes), Decimal("0.00"))
+    sheet_nonfood_total = sum((sheet_totals[c.pk] for c in nonfood_codes), Decimal("0.00")) + sheet_tax_total
+    sheet_all_total = sheet_food_total + sheet_nonfood_total
+
+    previous_week = Week.objects.filter(
+        county=county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+    beginning_by_code = totals_by_code(county, previous_week)
+    ending_by_code = totals_by_code(county, week)
+
+    beginning_food_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
+    beginning_nonfood_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+    beginning_all_total = beginning_food_total + beginning_nonfood_total
+
+    ending_food_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
+    ending_nonfood_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+    ending_all_total = ending_food_total + ending_nonfood_total
+
+    # Tax has no beginning/ending inventory concept — it only ever gets summed
+    # once, in the Sheet Total row itself. These two derived rows use the
+    # category-only nonfood sum (sheet_totals), NOT sheet_nonfood_total, which
+    # deliberately includes tax for the Sheet Total row's own display.
+    sheet_nonfood_excl_tax = sum((sheet_totals[c.pk] for c in nonfood_codes), Decimal("0.00"))
+
+    total_sheet_and_beginning_food = sheet_food_total + beginning_food_total
+    total_sheet_and_beginning_nonfood = sheet_nonfood_excl_tax + beginning_nonfood_total
+    total_sheet_and_beginning_all = total_sheet_and_beginning_food + total_sheet_and_beginning_nonfood
+
+    cost_for_week_food = sheet_food_total + beginning_food_total - ending_food_total
+    cost_for_week_nonfood = sheet_nonfood_excl_tax + beginning_nonfood_total - ending_nonfood_total
+    cost_for_week_all = cost_for_week_food + cost_for_week_nonfood
+
+    # Annotate each FoodCode with its sheet/beginning/ending/cost figures directly —
+    # avoids Django templates' lack of variable-key dict lookup, and food_codes/
+    # nonfood_codes already reference these same objects, so this covers both.
+    for code in county_codes:
+        sheet_total = sheet_totals[code.pk]
+        beginning = beginning_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
+        ending = ending_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
+        code.sheet_total = str(round_cents(sheet_total))
+        code.beginning = str(round_cents(beginning))
+        code.ending = str(round_cents(ending))
+        code.total_sheet_and_beginning = str(round_cents(sheet_total + beginning))
+        code.cost_for_week = str(round_cents(sheet_total + beginning - ending))
+        # Exact (unrounded) values for the JS live-recalc to key off of.
+        code.beginning_exact = str(beginning)
+        code.ending_exact = str(ending)
+
+    signoff = WeeklySignoff.objects.filter(week=week).select_related("manager").first()
+    can_sign = hasattr(request.user, "manager_profile")
+    vendor_options = Vendor.objects.filter(is_active=True)
+
+    return render(request, "inventory_system/invoices_recap.html", {
+        "county": county,
+        "week": week,
+        "food_codes": food_codes,
+        "nonfood_codes": nonfood_codes,
+        "grid_rows": grid_rows,
+        "sheet_tax_total": str(round_cents(sheet_tax_total)),
+        "sheet_food_total": str(round_cents(sheet_food_total)),
+        "sheet_nonfood_total": str(round_cents(sheet_nonfood_total)),
+        "sheet_all_total": str(round_cents(sheet_all_total)),
+        "beginning_food_total": str(round_cents(beginning_food_total)),
+        "beginning_nonfood_total": str(round_cents(beginning_nonfood_total)),
+        "beginning_all_total": str(round_cents(beginning_all_total)),
+        "beginning_food_total_exact": str(beginning_food_total),
+        "beginning_nonfood_total_exact": str(beginning_nonfood_total),
+        "ending_food_total": str(round_cents(ending_food_total)),
+        "ending_nonfood_total": str(round_cents(ending_nonfood_total)),
+        "ending_all_total": str(round_cents(ending_all_total)),
+        "ending_food_total_exact": str(ending_food_total),
+        "ending_nonfood_total_exact": str(ending_nonfood_total),
+        "total_sheet_and_beginning_food": str(round_cents(total_sheet_and_beginning_food)),
+        "total_sheet_and_beginning_nonfood": str(round_cents(total_sheet_and_beginning_nonfood)),
+        "total_sheet_and_beginning_all": str(round_cents(total_sheet_and_beginning_all)),
+        "cost_for_week_food": str(round_cents(cost_for_week_food)),
+        "cost_for_week_nonfood": str(round_cents(cost_for_week_nonfood)),
+        "cost_for_week_all": str(round_cents(cost_for_week_all)),
+        "is_editable": is_editable,
+        "vendor_options": vendor_options,
+        "signoff": signoff,
+        "can_sign": can_sign,
+        "active_report_tab": "invoices_recap",
+    })
+
+
+@login_required
+@require_POST
+def add_invoice(request):
+    county = resolve_county(request)
+    week = resolve_week(county, request.POST.get("week_id"))
+
+    access = get_user_access(request.user)
+    is_editable = is_week_editable(week, access)
+    if not is_editable:
+        raise PermissionDenied("This week is no longer editable.")
+
+    county_codes = list(FoodCode.objects.filter(
+        pk__in=CountyCategory.objects.filter(county=county, is_active=True).values_list("code_id", flat=True)
+    ).distinct())
+
+    existing_invoices = list(Invoice.objects.filter(week=week).select_related("vendor"))
+    save_invoice_fields(request, week, access, county_codes, existing_invoices)
+
+    vendor_name = request.POST.get("vendor_name", "").strip()
+    if not vendor_name:
+        messages.error(request, "Vendor name is required.")
+    else:
+        vendor = Vendor.get_or_create_matching(vendor_name)
+        invoice_number = request.POST.get("invoice_number", "").strip()
+
+        invoice = Invoice.objects.create(
+            week=week, vendor=vendor, invoice_number=invoice_number, tax=Decimal("0.00")
+        )
+
+        for code in county_codes:
+            InvoiceLineItem.objects.get_or_create(invoice=invoice, code=code, defaults={"amount": Decimal("0.00")})
+
+    if week.status == 0:
+        return redirect("invoices_recap")
+    else:
+        return redirect("invoices_recap_week", week_id=week.pk)
+
+
+@login_required
+@require_POST
+def delete_invoice(request, invoice_id):
+    county = resolve_county(request)
+    invoice = get_object_or_404(Invoice, pk=invoice_id, week__county=county)
+    week = invoice.week
+
+    access = get_user_access(request.user)
+    is_editable = is_week_editable(week, access)
+    if not is_editable:
+        raise PermissionDenied("This week is no longer editable.")
+
+    county_codes = list(FoodCode.objects.filter(
+        pk__in=CountyCategory.objects.filter(county=county, is_active=True).values_list("code_id", flat=True)
+    ).distinct())
+    other_invoices = list(Invoice.objects.filter(week=week).exclude(pk=invoice.pk).select_related("vendor"))
+    save_invoice_fields(request, week, access, county_codes, other_invoices)
+
+    InvoiceLineItem.objects.filter(invoice=invoice).delete()
+    invoice.delete()
+
+    if week.status == 0:
+        return redirect("invoices_recap")
+    else:
+        return redirect("invoices_recap_week", week_id=week.pk)

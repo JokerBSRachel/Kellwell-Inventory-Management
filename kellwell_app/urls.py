@@ -37,4 +37,8 @@ urlpatterns = [
     path('daily-sales/sign-off/<int:week_id>/', inventory_views.sign_off_week, name='sign_off_week'),
     path('totals/', inventory_views.totals, name='totals'),
     path('totals/week/<int:week_id>/', inventory_views.totals, name='totals_week'),
+    path('invoices-recap/', inventory_views.invoices_recap, name='invoices_recap'),
+    path('invoices-recap/week/<int:week_id>/', inventory_views.invoices_recap, name='invoices_recap_week'),
+    path('invoices-recap/add/', inventory_views.add_invoice, name='add_invoice'),
+    path('invoices-recap/delete/<int:invoice_id>/', inventory_views.delete_invoice, name='delete_invoice'),
 ]

@@ -25,6 +25,10 @@
       <a href="{% url 'daily_sales_week' week.pk %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab{% endif %}">Daily Sales</a>
     {% endif %}
 
-    <a href="#" class="tab-link">Weekly Invoices Recap</a>
+    {% if week.status == 0 %}
+      <a href="{% url 'invoices_recap' %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab{% endif %}">Weekly Invoices Recap</a>
+    {% else %}
+      <a href="{% url 'invoices_recap_week' week.pk %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab{% endif %}">Weekly Invoices Recap</a>
+    {% endif %}
     <a href="#" class="tab-link">WOR</a>
 </div>

@@ -35,3 +35,7 @@ table {
     border-radius: 2px;
     border: 1px solid black;
 }
+
+#invoice-body input[type="number"] {
+    max-width: 70px;
+}
