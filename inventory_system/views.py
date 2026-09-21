@@ -3,14 +3,15 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Sum
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
-from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, \
-                    DailySale, WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor
-from .services import rollover_county_week, totals_by_code, round_cents
+from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, \
+                    WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll
+from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
 
@@ -415,7 +416,7 @@ def add_item(request):
         county=county, end_date__lt=week.end_date
     ).order_by("-end_date").first()
 
-    if previous_week and previous_week.is_initial:
+    if previous_week:
         Inventory.objects.get_or_create(
             county_item=county_item,
             week=previous_week,
@@ -951,3 +952,186 @@ def delete_invoice(request, invoice_id):
         return redirect("invoices_recap")
     else:
         return redirect("invoices_recap_week", week_id=week.pk)
+
+
+@login_required
+def wor(request, week_id=None):
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    week = resolve_week(county, week_id)
+
+    payroll_editable = access.role in ("manager", "developer") and is_week_editable(week, access)
+
+    # --- Cost summary (same formulas as Weekly Invoices Recap's bottom section) ---
+    previous_week = Week.objects.filter(
+        county=county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+    beginning_by_code = totals_by_code(county, previous_week)
+    ending_by_code = totals_by_code(county, week)
+
+    county_codes = list(FoodCode.objects.filter(
+        pk__in=CountyCategory.objects.filter(county=county, is_active=True).values_list("code_id", flat=True)
+    ).distinct().order_by("code_number"))
+    food_codes = [c for c in county_codes if c.code_number < FOOD_CODE_CEILING]
+    nonfood_codes = [c for c in county_codes if c.code_number >= FOOD_CODE_CEILING]
+
+    sheet_by_code = {
+        row["code_id"]: to_decimal(row["total"])
+        for row in InvoiceLineItem.objects.filter(invoice__week=week).values("code_id").annotate(total=Sum("amount"))
+    }
+    sheet_tax_total = to_decimal(Invoice.objects.filter(week=week).aggregate(total=Sum("tax"))["total"]) or Decimal("0.00")
+
+    cost_for_week_exact_by_code = {}
+    for code in county_codes:
+        sheet_total = sheet_by_code.get(code.pk) or Decimal("0.00")
+        beginning = beginning_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
+        ending = ending_by_code.get(code.pk, {}).get("total") or Decimal("0.00")
+        cost_for_week = sheet_total + beginning - ending
+        cost_for_week_exact_by_code[code.pk] = cost_for_week
+        code.sheet_total = str(round_cents(sheet_total))
+        code.beginning = str(round_cents(beginning))
+        code.ending = str(round_cents(ending))
+        code.cost_for_week = str(round_cents(cost_for_week))
+
+    sheet_food_total = sum((sheet_by_code.get(c.pk) or Decimal("0.00") for c in food_codes), Decimal("0.00"))
+    sheet_nonfood_total = sum((sheet_by_code.get(c.pk) or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+    beginning_food_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
+    beginning_nonfood_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+    ending_food_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
+    ending_nonfood_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+
+    cost_for_week_food = sheet_food_total + beginning_food_total - ending_food_total
+    cost_for_week_nonfood = sheet_nonfood_total + beginning_nonfood_total - ending_nonfood_total
+    cost_for_week_all = cost_for_week_food + cost_for_week_nonfood
+
+    # --- Daily Sales (read-only reference — editing happens on the Daily Sales page itself) ---
+    county_meals = list(
+        CountyMeal.objects.filter(county=county, is_active=True).select_related("meal").order_by("pk")
+    )
+    dates = [week.end_date - timedelta(days=6 - i) for i in range(7)]
+    sales = DailySale.objects.filter(week=week, county_meal__in=county_meals)
+    sales_by_date_meal = {(s.sale_date, s.county_meal_id): s for s in sales}
+
+    meal_totals = [0] * len(county_meals)
+    daily_rows = []
+    grand_total_meals = 0
+    for sale_date in dates:
+        cells = []
+        row_total = 0
+        for idx, cm in enumerate(county_meals):
+            sale = sales_by_date_meal.get((sale_date, cm.pk))
+            count = sale.sale_count if sale else 0
+            cells.append(count)
+            row_total += count
+            meal_totals[idx] += count
+        grand_total_meals += row_total
+        daily_rows.append({"date": sale_date, "cells": cells, "row_total": row_total})
+
+    meal_totals_display = [
+        {"meal_name": cm.meal.meal_name, "total": total} for cm, total in zip(county_meals, meal_totals)
+    ]
+
+    # --- Cents per category / Food Cost for the Week / Weeks of Food on Hand ---
+    def safe_div(numerator, denominator):
+        if not denominator:
+            return Decimal("0.00")
+        return numerator / denominator
+
+    for code in county_codes:
+        code.cents_per_category = str(round_to(safe_div(cost_for_week_exact_by_code[code.pk], grand_total_meals), 3))
+
+    food_cost_for_week = round_to(safe_div(cost_for_week_food, grand_total_meals), 3)
+    tax_cost_for_week_cents = round_to(safe_div(sheet_tax_total, grand_total_meals), 3)
+    nonfood_cost_for_week_cents = round_to(safe_div(cost_for_week_nonfood, grand_total_meals), 3)
+    all_cost_for_week_cents = round_to(safe_div(cost_for_week_all, grand_total_meals), 3)
+    weeks_of_food_on_hand = round_to(safe_div(ending_food_total, cost_for_week_food), 2)
+
+    # --- Weekly Payroll (manager-editable only) ---
+    employees = list(Employee.objects.filter(county=county, is_active=True))
+    payroll_by_employee = {}
+    for employee in employees:
+        payroll, _ = WeeklyPayroll.objects.get_or_create(employee=employee, week=week)
+        payroll_by_employee[employee.pk] = payroll
+
+    if request.method == "POST":
+        if not payroll_editable:
+            raise PermissionDenied("Payroll can only be edited by a manager, and only while the week is editable.")
+
+        def parse_hours(field_name):
+            raw = request.POST.get(field_name, "").strip()
+            if raw == "":
+                return Decimal("0.00")
+            try:
+                value = Decimal(raw)
+                return value if value >= 0 else Decimal("0.00")
+            except InvalidOperation:
+                return Decimal("0.00")
+
+        for employee in employees:
+            payroll = payroll_by_employee[employee.pk]
+            payroll.regular_hours = parse_hours(f"regular_hours_{payroll.pk}")
+            payroll.overtime_hours = parse_hours(f"overtime_hours_{payroll.pk}")
+            payroll.overtime_explanation = request.POST.get(f"overtime_explanation_{payroll.pk}", "").strip()
+            payroll.save()
+
+        if week.status == 0:
+            return redirect("wor")
+        else:
+            return redirect("wor_week", week_id=week.pk)
+
+    payroll_rows = []
+    total_regular_hours = Decimal("0.00")
+    total_overtime_hours = Decimal("0.00")
+    for employee in employees:
+        payroll = payroll_by_employee[employee.pk]
+        total_regular_hours += payroll.regular_hours
+        total_overtime_hours += payroll.overtime_hours
+        payroll_rows.append({
+            "payroll_id": payroll.pk,
+            "employee_name": employee.employee_name,
+            "regular_hours": payroll.regular_hours,
+            "overtime_hours": payroll.overtime_hours,
+            "total_hours": payroll.regular_hours + payroll.overtime_hours,
+            "overtime_explanation": payroll.overtime_explanation,
+        })
+    total_hours_all = total_regular_hours + total_overtime_hours
+
+    signoff = WeeklySignoff.objects.filter(week=week).select_related("manager").first()
+    can_sign = hasattr(request.user, "manager_profile")
+
+    return render(request, "inventory_system/wor.html", {
+        "county": county,
+        "week": week,
+        "food_codes": food_codes,
+        "nonfood_codes": nonfood_codes,
+        "sheet_food_total": str(round_cents(sheet_food_total)),
+        "sheet_nonfood_total": str(round_cents(sheet_nonfood_total)),
+        "sheet_tax_total": str(round_cents(sheet_tax_total)),
+        "sheet_all_total": str(round_cents(sheet_food_total + sheet_nonfood_total + sheet_tax_total)),
+        "beginning_food_total": str(round_cents(beginning_food_total)),
+        "beginning_nonfood_total": str(round_cents(beginning_nonfood_total)),
+        "beginning_all_total": str(round_cents(beginning_food_total + beginning_nonfood_total)),
+        "ending_food_total": str(round_cents(ending_food_total)),
+        "ending_nonfood_total": str(round_cents(ending_nonfood_total)),
+        "ending_all_total": str(round_cents(ending_food_total + ending_nonfood_total)),
+        "cost_for_week_food": str(round_cents(cost_for_week_food)),
+        "cost_for_week_nonfood": str(round_cents(cost_for_week_nonfood)),
+        "cost_for_week_all": str(round_cents(cost_for_week_all)),
+        "food_cost_for_week": str(food_cost_for_week),
+        "tax_cost_for_week_cents": str(tax_cost_for_week_cents),
+        "nonfood_cost_for_week_cents": str(nonfood_cost_for_week_cents),
+        "all_cost_for_week_cents": str(all_cost_for_week_cents),
+        "weeks_of_food_on_hand": str(weeks_of_food_on_hand),
+        "county_meals": county_meals,
+        "daily_rows": daily_rows,
+        "meal_totals_display": meal_totals_display,
+        "grand_total_meals": grand_total_meals,
+        "payroll_rows": payroll_rows,
+        "total_regular_hours": str(total_regular_hours),
+        "total_overtime_hours": str(total_overtime_hours),
+        "total_hours_all": str(total_hours_all),
+        "payroll_editable": payroll_editable,
+        "signoff": signoff,
+        "can_sign": can_sign,
+        "active_report_tab": "wor",
+    })

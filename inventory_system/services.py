@@ -4,6 +4,14 @@ from django.db.models import Sum, F
 from .models import Week, CountyItem, Inventory, CountyMeal, DailySale
 
 
+def round_to(value, decimal_places):
+    """Round a Decimal to the given number of places using round-half-up —
+    same convention as round_cents, but for non-currency ratios (cents per
+    meal, weeks of food on hand) that need more or fewer than 2 decimals."""
+    exponent = Decimal("1").scaleb(-decimal_places)
+    return value.quantize(exponent, rounding=ROUND_HALF_UP)
+
+
 def round_cents(value):
     """Round a Decimal to 2 decimal places using round-half-up (away from zero),
     matching Excel's rounding convention. Python's own Decimal formatting
@@ -11,6 +19,19 @@ def round_cents(value):
     which lands a cent off from Excel on values that fall exactly on a .xx5
     boundary — e.g. 44.805 rounds to 44.80 under Python's default, 44.81 in Excel."""
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def to_decimal(value):
+    """Defensively coerces a DB aggregate result to Decimal. Django's automatic
+    output_field inference for computed expressions like Sum(F(a)*F(b)) can, in
+    rare cases, resolve to a plain float instead of Decimal — this guards
+    against the resulting 'unsupported operand type... Decimal and float'
+    crash wherever that value later gets used in Decimal arithmetic."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
 
 
 def totals_by_code(county, target_week, code_id=None):
@@ -39,7 +60,11 @@ def totals_by_code(county, target_week, code_id=None):
         )
         .annotate(total=Sum(F("end_price") * F("end_inventory")))
     )
-    return {r["county_item__category__code_id"]: r for r in rows}
+    result = {}
+    for r in rows:
+        r["total"] = to_decimal(r["total"])
+        result[r["county_item__category__code_id"]] = r
+    return result
 
 
 def ensure_initial_weeks(county):

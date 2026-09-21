@@ -1,0 +1,224 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h1>{{ county }} Weekly Operating Report</h1>
+<h3>Week ending {{ week.end_date }}</h3>
+
+{% if messages %}
+<ul>
+    {% for message in messages %}
+    <li style="color: red;">{{ message }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<table border="1" cellpadding="6">
+    <tr>
+        <th></th>
+        {% for code in food_codes %}
+        <th>{{ code.code_number }}-{{ code.code_name }}</th>
+        {% endfor %}
+        <th>Total - 100's</th>
+        {% for code in nonfood_codes %}
+        <th>{{ code.code_number }}-{{ code.code_name }}</th>
+        {% endfor %}
+        <th>Tax</th>
+        <th>Total Non-food</th>
+        <th>Total all Categories</th>
+    </tr>
+    <tr>
+        <td style="text-align: right;">Invoice Totals</td>
+        {% for code in food_codes %}
+        <td>${{ code.sheet_total }}</td>
+        {% endfor %}
+        <td>${{ sheet_food_total }}</td>
+        {% for code in nonfood_codes %}
+        <td>${{ code.sheet_total }}</td>
+        {% endfor %}
+        <td>${{ sheet_tax_total }}</td>
+        <td>${{ sheet_nonfood_total }}</td>
+        <td>${{ sheet_all_total }}</td>
+    </tr>
+    <tr>
+        <td style="text-align: right;">Beginning Inventory</td>
+        {% for code in food_codes %}
+        <td>${{ code.beginning }}</td>
+        {% endfor %}
+        <td>${{ beginning_food_total }}</td>
+        {% for code in nonfood_codes %}
+        <td>${{ code.beginning }}</td>
+        {% endfor %}
+        <td>$0.00</td>
+        <td>${{ beginning_nonfood_total }}</td>
+        <td>${{ beginning_all_total }}</td>
+    </tr>
+    <tr>
+        <td style="text-align: right;">Ending Inventory</td>
+        {% for code in food_codes %}
+        <td>${{ code.ending }}</td>
+        {% endfor %}
+        <td>${{ ending_food_total }}</td>
+        {% for code in nonfood_codes %}
+        <td>${{ code.ending }}</td>
+        {% endfor %}
+        <td>$0.00</td>
+        <td>${{ ending_nonfood_total }}</td>
+        <td>${{ ending_all_total }}</td>
+    </tr>
+    <tr>
+        <td style="text-align: right;"><strong>Cost for the Week</strong></td>
+        {% for code in food_codes %}
+        <td><strong>${{ code.cost_for_week }}</strong></td>
+        {% endfor %}
+        <td><strong>${{ cost_for_week_food }}</strong></td>
+        {% for code in nonfood_codes %}
+        <td><strong>${{ code.cost_for_week }}</strong></td>
+        {% endfor %}
+        <td><strong>${{ sheet_tax_total }}</strong></td>
+        <td><strong>${{ cost_for_week_nonfood }}</strong></td>
+        <td><strong>${{ cost_for_week_all }}</strong></td>
+    </tr>
+    <tr><td colspan="20">&nbsp;</td></tr>
+    <tr>
+        <td style="text-align: right;">Cents per Category</td>
+        {% for code in food_codes %}
+        <td>{{ code.cents_per_category }}</td>
+        {% endfor %}
+        <td>{{ food_cost_for_week }}</td>
+        {% for code in nonfood_codes %}
+        <td>{{ code.cents_per_category }}</td>
+        {% endfor %}
+        <td>{{ tax_cost_for_week_cents }}</td>
+        <td>{{ nonfood_cost_for_week_cents }}</td>
+        <td>{{ all_cost_for_week_cents }}</td>
+    </tr>
+</table>
+
+<table border="1" cellpadding="6" style="margin-top: 10px; background-color: #d6f5d6;">
+    <tr>
+        <td><strong>FOOD COST FOR THE WEEK</strong></td>
+        <td>${{ food_cost_for_week }}</td>
+    </tr>
+    <tr>
+        <td><strong>WEEKS OF FOOD ON HAND</strong></td>
+        <td>{{ weeks_of_food_on_hand }}</td>
+    </tr>
+</table>
+
+<h2 style="margin-top: 20px;">Daily Sales Record</h2>
+<table border="1" cellpadding="6">
+    <tr>
+        <th>Day</th>
+        <th>Date</th>
+        {% for cm in county_meals %}
+        <th>{{ cm.meal.meal_name }}</th>
+        {% endfor %}
+        <th>Daily Total</th>
+    </tr>
+    {% for row in daily_rows %}
+    <tr>
+        <td>{{ row.date|date:"l" }}</td>
+        <td>{{ row.date|date:"m/d/y" }}</td>
+        {% for count in row.cells %}
+        <td>{{ count }}</td>
+        {% endfor %}
+        <td>{{ row.row_total }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+        <td colspan="2" style="text-align: right;"><strong>TOTALS</strong></td>
+        {% for entry in meal_totals_display %}
+        <td><strong>{{ entry.total }}</strong></td>
+        {% endfor %}
+        <td><strong>{{ grand_total_meals }}</strong></td>
+    </tr>
+</table>
+
+<h2 style="margin-top: 20px;">Weekly Payroll Report</h2>
+<form method="post">
+    {% csrf_token %}
+    <table border="1" cellpadding="6">
+        <tr>
+            <th>Employee Name</th>
+            <th>Regular Hours</th>
+            <th>Overtime Hours</th>
+            <th>Total Hours</th>
+            <th>Explanation for Overtime</th>
+        </tr>
+        {% for row in payroll_rows %}
+        <tr class="payroll_row">
+            <td>{{ row.employee_name }}</td>
+            <td>
+                {% if payroll_editable %}
+                <input type="number" step="0.01" class="regular-hours-input" name="regular_hours_{{ row.payroll_id }}" value="{% if row.regular_hours %}{{ row.regular_hours }}{% endif %}">
+                {% else %}
+                {{ row.regular_hours }}
+                {% endif %}
+            </td>
+            <td>
+                {% if payroll_editable %}
+                <input type="number" step="0.01" class="overtime-hours-input" name="overtime_hours_{{ row.payroll_id }}" value="{% if row.overtime_hours %}{{ row.overtime_hours }}{% endif %}">
+                {% else %}
+                {{ row.overtime_hours }}
+                {% endif %}
+            </td>
+            <td class="total-hours-cell">{{ row.total_hours }}</td>
+            <td>
+                {% if payroll_editable %}
+                <input type="text" name="overtime_explanation_{{ row.payroll_id }}" value="{{ row.overtime_explanation }}" style="width: 200px;">
+                {% else %}
+                {{ row.overtime_explanation }}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td style="text-align: right;"><strong>Totals</strong></td>
+            <td id="total-regular-hours"><strong>{{ total_regular_hours }}</strong></td>
+            <td id="total-overtime-hours"><strong>{{ total_overtime_hours }}</strong></td>
+            <td id="total-hours-all"><strong>{{ total_hours_all }}</strong></td>
+            <td></td>
+        </tr>
+    </table>
+
+    {% if payroll_editable %}
+    <button type="submit">Save</button>
+    {% endif %}
+</form>
+
+{% include "inventory_system/_signoff.html" %}
+
+{% include "inventory_system/_page_tabs.html" %}
+
+{% if payroll_editable %}
+<script>
+    function parseHrs(input) {
+        if (!input) return 0;
+        const val = parseFloat(input.value);
+        return isNaN(val) ? 0 : val;
+    }
+
+    function recalcPayroll() {
+        let totalRegular = 0;
+        let totalOvertime = 0;
+
+        document.querySelectorAll('.payroll_row').forEach(function (tr) {
+            const regular = parseHrs(tr.querySelector('.regular-hours-input'));
+            const overtime = parseHrs(tr.querySelector('.overtime-hours-input'));
+            tr.querySelector('.total-hours-cell').textContent = (regular + overtime).toFixed(2);
+            totalRegular += regular;
+            totalOvertime += overtime;
+        });
+
+        document.getElementById('total-regular-hours').innerHTML = '<strong>' + totalRegular.toFixed(2) + '</strong>';
+        document.getElementById('total-overtime-hours').innerHTML = '<strong>' + totalOvertime.toFixed(2) + '</strong>';
+        document.getElementById('total-hours-all').innerHTML = '<strong>' + (totalRegular + totalOvertime).toFixed(2) + '</strong>';
+    }
+
+    document.querySelectorAll('.regular-hours-input, .overtime-hours-input').forEach(function (input) {
+        input.addEventListener('input', recalcPayroll);
+    });
+</script>
+{% endif %}
+
+{% endblock %}
