@@ -59,7 +59,7 @@
         </tr>
         <tbody id="sortable-body">
         {% for row in table_rows %}
-        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}" data-beginning-exact="{{ row.beginning_total_exact }}" data-ending-exact="{{ row.ending_total_exact }}">
+        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}" data-beginning-tenthousandths="{{ row.beginning_total_tenthousandths }}" data-ending-tenthousandths="{{ row.ending_total_tenthousandths }}">
             <td class="drag-handle" style="cursor: grab;">☰</td>
             <td>
                 {% if is_editable %}
@@ -104,7 +104,7 @@
                     {% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}
                 {% endif %}
             </td>
-            <td>
+            <td class="beginning-inventory-text">
                 {% if allow_beginning_edit %}
                   <input type="number" step="0.01" name="begin_inventory_{{ row.beginning_inventory_id }}" value="{{ row.beginning_inventory|default:'0.00' }}">
                 {% else %}
@@ -216,7 +216,7 @@
                 <td colspan="2"></td>
             </tr>
             {% if show_parent_total %}
-            <tr id="parent-totals-row" data-beginning-excl-current="{{ parent_beginning_excl_current }}" data-ending-excl-current="{{ parent_ending_excl_current }}">
+            <tr id="parent-totals-row" data-beginning-excl-current-tenthousandths="{{ parent_beginning_excl_current_tenthousandths }}" data-ending-excl-current-tenthousandths="{{ parent_ending_excl_current_tenthousandths }}">
                 <td colspan="7" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
                 <td id="parent-beginning-total"><strong>$0.00</strong></td>
                 <td colspan="4" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
@@ -280,6 +280,40 @@
         return unitSpan ? unitSpan.textContent : '';
     }
     
+    function toCents(value) {
+        // Converts a plain decimal number into an integer count of cents,
+        // correcting any tiny floating-point representation drift.
+        return Math.round(value * 100);
+    }
+
+    function tenThousandthsProduct(priceVal, inventoryVal) {
+        // Price and inventory are both constrained to 2 decimal places (the
+        // inputs use step="0.01"), so their exact product can be computed
+        // entirely in integers, in units of $0.0001 — this sidesteps
+        // IEEE-754 floating-point drift completely, matching the exactness
+        // Python's Decimal arithmetic already gives server-side.
+        const priceCents = toCents(priceVal);
+        const invCents = toCents(inventoryVal);
+        return priceCents * invCents;
+    }
+
+    function roundTenThousandthsToCents(tenThousandths) {
+        // Round-half-up to the nearest cent, using only integer arithmetic —
+        // this is the ONE place actual rounding happens; everything upstream
+        // stays in exact, unrounded ten-thousandths so summing many rows never
+        // drifts from "sum exact, round once" (matches Excel and the server).
+        const remainder = tenThousandths % 100;
+        return (tenThousandths - remainder) / 100 + (remainder * 2 >= 100 ? 1 : 0);
+    }
+
+    function formatCents(cents) {
+        const sign = cents < 0 ? '-' : '';
+        const abs = Math.abs(cents);
+        const dollars = Math.floor(abs / 100);
+        const remainder = String(abs % 100).padStart(2, '0');
+        return sign + '$' + dollars + '.' + remainder;
+    }
+
     function recalcRow(tr) {
         const beginPrice = tr.querySelector('input[name^="begin_price_"]');
         const beginInventory = tr.querySelector('input[name^="begin_inventory_"]');
@@ -293,66 +327,65 @@
         const usageCell = tr.querySelector('.total-usage');
     
         if (beginPrice && beginInventory && beginningTotalCell) {
-            const beginningTotal = parseNum(beginPrice) * parseNum(beginInventory);
-            beginningTotalCell.textContent = '$' + beginningTotal.toFixed(2);
-            beginningTotalCell.style.backgroundColor = beginningTotal === 0 ? 'lightcoral' : '';
+            const beginningCents = roundTenThousandthsToCents(tenThousandthsProduct(parseNum(beginPrice), parseNum(beginInventory)));
+            beginningTotalCell.textContent = formatCents(beginningCents);
+            beginningTotalCell.style.backgroundColor = beginningCents === 0 ? 'lightcoral' : '';
         }
     
         if (price && inventory && endingTotalCell) {
-            const endingTotal = parseNum(price) * parseNum(inventory);
-            endingTotalCell.textContent = '$' + endingTotal.toFixed(2);
-            endingTotalCell.style.backgroundColor = endingTotal === 0 ? 'lightcoral' : '';
+            const endingCents = roundTenThousandthsToCents(tenThousandthsProduct(parseNum(price), parseNum(inventory)));
+            endingTotalCell.textContent = formatCents(endingCents);
+            endingTotalCell.style.backgroundColor = endingCents === 0 ? 'lightcoral' : '';
         }
     
         if (inventory && usageCell) {
-            const beginVal = beginInventory ? parseNum(beginInventory) : parseFloat(tr.querySelector('td:nth-child(6)').textContent) || 0;
+            const beginVal = beginInventory ? parseNum(beginInventory) : parseFloat(tr.querySelector('.beginning-inventory-text').textContent) || 0;
             const r1 = received1 ? parseNum(received1) : 0;
             const r2 = received2 ? parseNum(received2) : 0;
             const usage = (beginVal + r1 + r2) - parseNum(inventory);
             usageCell.textContent = usage.toFixed(2) + ' ' + getUnitText(tr);
-            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'lightcoral' : ''; {% endcomment %}
+            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'red' : ''; {% endcomment %}
         }
 
         recalcPageTotals();
     }
 
-    function parseCurrencyText(text) {
-        // Strips the leading "$" that beginning-total/ending-total cells are rendered with.
-        const val = parseFloat((text || '').replace('$', ''));
-        return isNaN(val) ? 0 : val;
-    }
-
     function recalcPageTotals() {
-        let beginningSum = 0;
-        let endingSum = 0;
+        let beginningTenThousandthsSum = 0;
+        let endingTenThousandthsSum = 0;
 
         document.querySelectorAll('.inventory_row').forEach(function (tr) {
             const beginPrice = tr.querySelector('input[name^="begin_price_"]');
             const beginInventory = tr.querySelector('input[name^="begin_inventory_"]');
             if (beginPrice && beginInventory) {
-                beginningSum += parseNum(beginPrice) * parseNum(beginInventory);
+                beginningTenThousandthsSum += tenThousandthsProduct(parseNum(beginPrice), parseNum(beginInventory));
             } else {
-                beginningSum += parseFloat(tr.dataset.beginningExact) || 0;
+                beginningTenThousandthsSum += parseInt(tr.dataset.beginningTenthousandths, 10) || 0;
             }
 
             const price = tr.querySelector('input[name^="price_"]');
             const inventory = tr.querySelector('input[name^="inventory_"]');
             if (price && inventory) {
-                endingSum += parseNum(price) * parseNum(inventory);
+                endingTenThousandthsSum += tenThousandthsProduct(parseNum(price), parseNum(inventory));
             } else {
-                endingSum += parseFloat(tr.dataset.endingExact) || 0;
+                endingTenThousandthsSum += parseInt(tr.dataset.endingTenthousandths, 10) || 0;
             }
         });
 
-        document.getElementById('page-beginning-total').innerHTML = '<strong>$' + beginningSum.toFixed(2) + '</strong>';
-        document.getElementById('page-ending-total').innerHTML = '<strong>$' + endingSum.toFixed(2) + '</strong>';
+        const beginningCentsSum = roundTenThousandthsToCents(beginningTenThousandthsSum);
+        const endingCentsSum = roundTenThousandthsToCents(endingTenThousandthsSum);
+
+        document.getElementById('page-beginning-total').innerHTML = '<strong>' + formatCents(beginningCentsSum) + '</strong>';
+        document.getElementById('page-ending-total').innerHTML = '<strong>' + formatCents(endingCentsSum) + '</strong>';
 
         const parentRow = document.getElementById('parent-totals-row');
         if (parentRow) {
-            const beginningExclCurrent = parseFloat(parentRow.dataset.beginningExclCurrent) || 0;
-            const endingExclCurrent = parseFloat(parentRow.dataset.endingExclCurrent) || 0;
-            document.getElementById('parent-beginning-total').innerHTML = '<strong>$' + (beginningExclCurrent + beginningSum).toFixed(2) + '</strong>';
-            document.getElementById('parent-ending-total').innerHTML = '<strong>$' + (endingExclCurrent + endingSum).toFixed(2) + '</strong>';
+            const beginningExclCurrentTenThousandths = parseInt(parentRow.dataset.beginningExclCurrentTenthousandths, 10) || 0;
+            const endingExclCurrentTenThousandths = parseInt(parentRow.dataset.endingExclCurrentTenthousandths, 10) || 0;
+            const parentBeginningCents = roundTenThousandthsToCents(beginningExclCurrentTenThousandths + beginningTenThousandthsSum);
+            const parentEndingCents = roundTenThousandthsToCents(endingExclCurrentTenThousandths + endingTenThousandthsSum);
+            document.getElementById('parent-beginning-total').innerHTML = '<strong>' + formatCents(parentBeginningCents) + '</strong>';
+            document.getElementById('parent-ending-total').innerHTML = '<strong>' + formatCents(parentEndingCents) + '</strong>';
         }
     }
     

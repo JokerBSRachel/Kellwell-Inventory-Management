@@ -1,6 +1,16 @@
 from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum, F
 from .models import Week, CountyItem, Inventory, CountyMeal, DailySale
+
+
+def round_cents(value):
+    """Round a Decimal to 2 decimal places using round-half-up (away from zero),
+    matching Excel's rounding convention. Python's own Decimal formatting
+    (e.g. f"{value:.2f}") defaults to round-half-to-even ("banker's rounding"),
+    which lands a cent off from Excel on values that fall exactly on a .xx5
+    boundary — e.g. 44.805 rounds to 44.80 under Python's default, 44.81 in Excel."""
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def totals_by_code(county, target_week, code_id=None):

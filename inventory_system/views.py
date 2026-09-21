@@ -9,7 +9,7 @@ from django.http import JsonResponse
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, WeeklySignoff
-from .services import rollover_county_week, totals_by_code
+from .services import rollover_county_week, totals_by_code, round_cents
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
 
@@ -213,12 +213,14 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "beginning_received_1": prev.end_received_1 if prev else None,
             "beginning_received_2": prev.end_received_2 if prev else None,
             "beginning_inventory": beginning_inventory,
-            "beginning_total": f"{beginning_total_exact:.2f}",
+            "beginning_total": str(round_cents(beginning_total_exact)),
+            "beginning_total_tenthousandths": int(beginning_total_exact * 10000),
             "ending_price": row.end_price,
             "ending_received_1": row.end_received_1,
             "ending_received_2": row.end_received_2,
             "ending_inventory": row.end_inventory,
-            "ending_total": f"{ending_total_exact:.2f}",
+            "ending_total": str(round_cents(ending_total_exact)),
+            "ending_total_tenthousandths": int(ending_total_exact * 10000),
             "total_usage": f"{total_usage:.2f}" if total_usage is not None else "0.00",
             "deep_dive": row.deep_dive,
         })
@@ -256,12 +258,12 @@ def weekly_inventory(request, category_id=None, week_id=None):
         "week": week,
         "category": category,
         "table_rows": table_rows,
-        "page_beginning_total": f"{page_beginning_total:.2f}",
-        "page_ending_total": f"{page_ending_total:.2f}",
+        "page_beginning_total": str(round_cents(page_beginning_total)),
+        "page_ending_total": str(round_cents(page_ending_total)),
         "show_parent_total": show_parent_total,
         "parent_code_number": category.code.code_number,
-        "parent_beginning_excl_current": f"{parent_beginning_excl_current:.2f}",
-        "parent_ending_excl_current": f"{parent_ending_excl_current:.2f}",
+        "parent_beginning_excl_current_tenthousandths": int(parent_beginning_excl_current * 10000),
+        "parent_ending_excl_current_tenthousandths": int(parent_ending_excl_current * 10000),
         "is_editable": is_editable,
         "allow_beginning_edit": allow_beginning_edit, 
         "allow_name_edit": allow_name_edit,
