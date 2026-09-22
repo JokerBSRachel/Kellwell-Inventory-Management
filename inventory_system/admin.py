@@ -6,7 +6,8 @@ from .models import (
     State, Region, Manager, County, Employee, Week,
     WeeklyPayroll, WeeklySignoff, Item, FoodCode,
     CountyCategory, CountyItem, Inventory, Invoice,
-    InvoiceLineItem, Meal, CountyMeal, DailySale, Unit, Vendor
+    InvoiceLineItem, Meal, CountyMeal, DailySale, Unit, Vendor,
+    RecipeCode, Recipe, RecipeIngredient, CountyRecipe,
 )
 from datetime import date, timedelta
 
@@ -419,3 +420,42 @@ class WeeklySignoffAdmin(NoDeleteOnlyAdmin):
 class DailySaleAdmin(NoDeleteOnlyAdmin):
     list_display = ("county_meal", "week", "sale_date", "sale_count")
     list_filter = ("week",)
+
+
+class RecipeIngredientInline(admin.TabularInline):
+    model = RecipeIngredient
+    extra = 1
+
+
+@admin.register(RecipeCode)
+class RecipeCodeAdmin(admin.ModelAdmin):
+    list_display = ("recipe_code", "recipe_code_name")
+    search_fields = ("recipe_code", "recipe_code_name")
+
+
+@admin.register(Recipe)
+class RecipeAdmin(admin.ModelAdmin):
+    list_display = ("recipe_name", "recipe_code", "recipe_size")
+    list_filter = ("recipe_code",)
+    search_fields = ("recipe_name",)
+    inlines = [RecipeIngredientInline]
+
+
+@admin.register(RecipeIngredient)
+class RecipeIngredientAdmin(admin.ModelAdmin):
+    list_display = ("ingredient_name", "recipe", "ingredient_amt", "ingredient_unit")
+    list_filter = ("recipe__recipe_code",)
+    search_fields = ("ingredient_name",)
+
+
+@admin.register(CountyRecipe)
+class CountyRecipeAdmin(admin.ModelAdmin):
+    list_display = ("county", "display", "recipe_number")
+    list_filter = ("county", "recipe__recipe_code")
+    search_fields = ("recipe__recipe_name", "display_name")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "county":
+            field.queryset = field.queryset.filter(is_active=True)
+        return field

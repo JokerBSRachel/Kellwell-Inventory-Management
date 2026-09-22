@@ -6,11 +6,12 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Sum
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_POST
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404
 
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, \
-                    WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll
+                    WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll, \
+                    CountyRecipe
 from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
@@ -1134,4 +1135,45 @@ def wor(request, week_id=None):
         "signoff": signoff,
         "can_sign": can_sign,
         "active_report_tab": "wor",
+    })
+
+
+@login_required
+def inventory_landing(request):
+    """Lists all weeks for the county; each links to that week's first category
+    page (nav_weeks/nav_categories are already available via sidebar_context)."""
+    return render(request, "inventory_system/inventory_landing.html")
+
+
+@login_required
+def recipes_landing(request):
+    """Lists all recipe codes that have at least one recipe for this county
+    (nav_recipe_codes is already available via sidebar_context)."""
+    return render(request, "inventory_system/recipes_landing.html")
+
+
+@login_required
+def recipe_code(request, code_id):
+    """Redirects to the first recipe (by recipe_number) within this code, for this county."""
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    first = CountyRecipe.objects.filter(
+        county=county, recipe__recipe_code_id=code_id
+    ).order_by("recipe_number").first()
+    if not first:
+        raise Http404("No recipes found for this code.")
+    return redirect("recipe_detail", code_id=code_id, county_recipe_id=first.pk)
+
+
+@login_required
+def recipe_detail(request, code_id, county_recipe_id):
+    # Stub for now — the live-scaling ingredient/instructions "spreadsheet" view
+    # (portions-to-prepare input, ingredient math) is the next step, not built yet.
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    county_recipe = get_object_or_404(
+        CountyRecipe, pk=county_recipe_id, county=county, recipe__recipe_code_id=code_id
+    )
+    return render(request, "inventory_system/recipe_detail.html", {
+        "county_recipe": county_recipe,
     })

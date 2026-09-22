@@ -24,6 +24,7 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='inventory_system/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('dashboard/', inventory_views.dashboard, name='dashboard'),
+    path('inventory/weeks/', inventory_views.inventory_landing, name='inventory_landing'),
     path('inventory/', inventory_views.weekly_inventory, name='weekly_inventory'),
     path('inventory/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_category'),
     path('inventory/week/<int:week_id>/<int:category_id>/', inventory_views.weekly_inventory, name='weekly_inventory_week'),
@@ -43,4 +44,7 @@ urlpatterns = [
     path('invoices-recap/delete/<int:invoice_id>/', inventory_views.delete_invoice, name='delete_invoice'),
     path('wor/', inventory_views.wor, name='wor'),
     path('wor/week/<int:week_id>/', inventory_views.wor, name='wor_week'),
+    path('recipes/', inventory_views.recipes_landing, name='recipes'),
+    path('recipes/code/<int:code_id>/', inventory_views.recipe_code, name='recipes_code'),
+    path('recipes/code/<int:code_id>/recipe/<int:county_recipe_id>/', inventory_views.recipe_detail, name='recipe_detail'),
 ]

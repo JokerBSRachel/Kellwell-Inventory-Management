@@ -24,12 +24,16 @@
             </p>
             {% endif %}
 
+            
             {% if nav_county %}
-            <p><strong>{{ nav_county }} Inventory</strong></p>
 
             {% if not nav_county.is_template %}
             <p><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></p>
             {% endif %}
+
+            <details{% if not nav_viewed_recipe_code_id %} open{% endif %}>
+                <summary><a href="{% url 'inventory_landing' %}"><strong>Inventory</strong></a></summary>
+
 
             <div class="week-nav">
                 {% for w in nav_weeks %}
@@ -87,6 +91,29 @@
             </details>
             {% endfor %}
             </div>
+            </details>
+
+            <details{% if nav_viewed_recipe_code_id %} open{% endif %}>
+                <summary><a href="{% url 'recipes' %}"><strong>Recipes</strong></a></summary>
+
+                <div class="recipe-nav">
+                    {% for entry in nav_recipe_codes %}
+                    <details{% if entry.code.pk == nav_viewed_recipe_code_id %} open{% endif %}>
+                        <summary>
+                            <a href="{% url 'recipes_code' entry.code.pk %}">{{ entry.code.recipe_code }} - {{ entry.code.recipe_code_name }}</a>
+                        </summary>
+                        <ul>
+                            {% for cr in entry.recipes %}
+                            <li>
+                                <a href="{% url 'recipe_detail' entry.code.pk cr.pk %}">{{ cr.recipe_number }} - {{ cr.display }}</a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endfor %}
+                </div>
+            </details>
+
             {% endif %}
 
             

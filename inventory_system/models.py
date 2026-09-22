@@ -387,3 +387,82 @@ class DailySale(models.Model):
     def __str__(self):
         return str(self.county_meal) + " - " + str(self.sale_date)
 
+
+class RecipeCode(models.Model):
+    recipe_code = models.CharField(max_length=10, unique=True)
+    recipe_code_name = models.CharField(max_length=100)
+
+    class Meta:
+        ordering = ["recipe_code"]
+
+    def __str__(self):
+        return self.recipe_code + " - " + self.recipe_code_name
+
+
+class Recipe(models.Model):
+    recipe_code = models.ForeignKey(RecipeCode, on_delete=models.PROTECT)
+    recipe_name = models.CharField(max_length=100)
+    recipe_size = models.CharField(max_length=100)
+    instructions = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["recipe_code__recipe_code", "recipe_name"]
+
+    def __str__(self):
+        return str(self.recipe_code.recipe_code) + " - " + self.recipe_name
+
+
+class RecipeIngredient(models.Model):
+    """ingredient_amt is the quantity required for 100 servings; the app scales this
+    at display time based on the employee's entered serving count."""
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name="ingredients")
+    ingredient_name = models.CharField(max_length=100)
+    ingredient_amt = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    ingredient_unit = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        ordering = ["recipe__recipe_code__recipe_code", "recipe__recipe_name"]
+
+    def __str__(self):
+        return self.ingredient_name + " - " + str(self.recipe)
+
+
+class CountyRecipe(models.Model):
+    """Links a county to a recipe it uses, with a county-specific number within the
+    recipe's code and an optional display name override (see CountyItem.display_name)."""
+    county = models.ForeignKey(County, on_delete=models.PROTECT)
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE)
+    recipe_number = models.CharField(max_length=10)
+        # Text, not int: some codes number recipes "1A"/"1B". Zero-padded by
+        # convention (e.g. "01") so plain alphabetical sort orders correctly.
+    display_name = models.CharField(max_length=100, blank=True)
+        # Optional county-specific override of recipe.recipe_name, same pattern
+        # as CountyItem.display_name (e.g. two counties share a recipe *name*
+        # in the app but it maps to a different underlying Recipe per county).
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["county", "recipe"], name="unique_county_recipe")
+        ]
+        ordering = ["county__county_name", "county__state__state_abbreviation", "recipe__recipe_code__recipe_code", "recipe_number"]
+
+    def __str__(self):
+        return str(self.county) + " - " + self.display
+
+    @property
+    def display(self):
+        return self.display_name or self.recipe.recipe_name
+
+    def clean(self):
+        # recipe_number must be unique per county within a recipe code, but that
+        # code lives on Recipe (one join away), so it can't be a DB constraint.
+        if self.county_id and self.recipe_id and self.recipe_number:
+            conflict = CountyRecipe.objects.filter(
+                county_id=self.county_id,
+                recipe__recipe_code_id=self.recipe.recipe_code_id,
+                recipe_number=self.recipe_number,
+            ).exclude(pk=self.pk)
+            if conflict.exists():
+                raise ValidationError(
+                    f"Recipe number '{self.recipe_number}' is already used in this recipe code for this county."
+                )
