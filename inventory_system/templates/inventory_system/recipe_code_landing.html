@@ -1,0 +1,13 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<h2>{{ nav_county }} Recipes — {{ code.recipe_code }} - {{ code.recipe_code_name }}</h2>
+
+<ul>
+    {% for cr in county_recipes %}
+    <li>
+        <a href="{% url 'recipe_detail' code.pk cr.pk %}">{{ code.recipe_code }}-{{ cr.recipe_number }} {{ cr.display }}</a>
+    </li>
+    {% endfor %}
+</ul>
+{% endblock %}

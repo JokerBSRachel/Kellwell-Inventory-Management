@@ -1,6 +1,105 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h2>{{ county_recipe.display }}</h2>
-<p><em>Recipe detail view — ingredient scaling and instructions coming in the next step.</em></p>
+<div class="recipe-header">
+    <h2>{{ county_recipe.display }}</h2>
+    <div class="recipe-meta">
+        <span><strong>Recipe</strong> {{ recipe.recipe_code.recipe_code }}-{{ county_recipe.recipe_number }}</span>
+        <label>
+            <strong>{{ recipe.get_serving_unit_display }} to prepare</strong>
+            <input type="number" id="servings-input" min="0"
+                   step="{% if recipe.serving_unit == recipe.PORTIONS %}1{% else %}0.01{% endif %}"
+                   value="{% if recipe.serving_unit == recipe.PORTIONS %}{{ county_recipe.last_servings|floatformat:0 }}{% else %}{{ county_recipe.last_servings|floatformat:2 }}{% endif %}" 
+                   data-serving-unit="{{ recipe.serving_unit }}"
+                   data-county-recipe-id="{{ county_recipe.pk }}">
+        </label>
+        <span><strong>{% if recipe.serving_unit == recipe.PORTIONS %}Portion{% else %}Recipe{% endif %} size</strong> {{ recipe.recipe_size }}</span>
+    </div>
+</div>
+
+<div class="recipe-body">
+    <table class="recipe-ingredients">
+        <thead>
+            <tr>
+                <th>Ingredients</th>
+                <th>Amount</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ingredient in ingredients %}
+            {% if ingredient.is_label %}
+            <tr class="ingredient-label-row">
+                <td colspan="3"><strong>{{ ingredient.ingredient_name }}</strong></td>
+            </tr>
+            {% else %}
+            <tr>
+                <td>{{ ingredient.ingredient_name }}</td>
+                <td class="ingredient-amount" data-base-amt="{{ ingredient.ingredient_amt }}">--</td>
+                <td>{{ ingredient.ingredient_unit }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="recipe-instructions">
+        <h3>Instructions</h3>
+        <p>{{ recipe.instructions|linebreaksbr }}</p>
+    </div>
+</div>
+
+{% include "inventory_system/_recipe_tabs.html" %}
+
+<script>
+    (function () {
+        const servingsInput = document.getElementById('servings-input');
+        // "0" = Portions (Recipe.PORTIONS): ingredient amounts are per 100
+        // servings, so the entered count must NOT go through toCents() —
+        // it's a plain multiplier count, not a 2-decimal value.
+        // Anything else (Sheetpans, and — by default — any future type that
+        // behaves like a direct multiplier) uses the standard
+        // tenThousandthsProduct() path, same as price x inventory.
+        const isPortions = servingsInput.dataset.servingUnit === '0';
+        const amountCells = document.querySelectorAll('.ingredient-amount');
+        let saveTimer = null;
+
+        function scaledHundredths(baseAmt, enteredValue) {
+            if (isPortions) {
+                const baseHundredths = toCents(baseAmt);
+                const rawProduct = baseHundredths * enteredValue;
+                return roundTenThousandthsToCents(rawProduct);
+            }
+            return roundTenThousandthsToCents(tenThousandthsProduct(baseAmt, enteredValue));
+        }
+
+        function recalcIngredients() {
+            const entered = parseNum(servingsInput);
+            amountCells.forEach(function (cell) {
+                const baseAmt = parseFloat(cell.dataset.baseAmt);
+                const hundredths = scaledHundredths(baseAmt, entered);
+                cell.textContent = (hundredths / 100).toFixed(2);
+            });
+        }
+
+        function saveServings() {
+            const entered = parseNum(servingsInput);
+            const formData = new FormData();
+            formData.append('servings', entered);
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            fetch('{% url "save_recipe_servings" county_recipe.pk %}', {
+                method: 'POST',
+                body: formData,
+            });
+        }
+
+        servingsInput.addEventListener('input', function () {
+            recalcIngredients();
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(saveServings, 500);
+        });
+
+        recalcIngredients(); // initial render on page load, using the saved value
+    })();
+</script>
 {% endblock %}

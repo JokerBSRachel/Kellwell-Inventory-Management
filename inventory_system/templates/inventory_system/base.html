@@ -6,6 +6,7 @@
     <title>Kellwell Inventory</title>
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+    <script src="{% static 'js/decimal_math.js' %}"></script>
 </head>
 
 <body>
@@ -31,7 +32,7 @@
             <p><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></p>
             {% endif %}
 
-            <details{% if not nav_viewed_recipe_code_id %} open{% endif %}>
+            <details{% if not nav_viewing_recipes %} open{% endif %}>
                 <summary><a href="{% url 'inventory_landing' %}"><strong>Inventory</strong></a></summary>
 
 
@@ -93,7 +94,7 @@
             </div>
             </details>
 
-            <details{% if nav_viewed_recipe_code_id %} open{% endif %}>
+            <details{% if nav_viewing_recipes %} open{% endif %}>
                 <summary><a href="{% url 'recipes' %}"><strong>Recipes</strong></a></summary>
 
                 <div class="recipe-nav">
@@ -105,7 +106,7 @@
                         <ul>
                             {% for cr in entry.recipes %}
                             <li>
-                                <a href="{% url 'recipe_detail' entry.code.pk cr.pk %}">{{ cr.recipe_number }} - {{ cr.display }}</a>
+                                <a href="{% url 'recipe_detail' entry.code.pk cr.pk %}">{{ entry.code.recipe_code }}-{{ cr.recipe_number }} {{ cr.display }}</a>
                             </li>
                             {% endfor %}
                         </ul>

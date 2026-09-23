@@ -16,6 +16,7 @@ def sidebar_context(request):
     viewed_week_id = None
     recipe_codes = []
     viewed_recipe_code_id = None
+    viewing_recipes = False
 
     if county:
         week = Week.objects.filter(county=county).order_by("-end_date").first()
@@ -24,11 +25,18 @@ def sidebar_context(request):
 
         url_week_id = None
         url_code_id = None
+        url_name = None
         if request.resolver_match:
             url_week_id = request.resolver_match.kwargs.get("week_id")
             url_code_id = request.resolver_match.kwargs.get("code_id")
+            url_name = request.resolver_match.url_name
         viewed_week_id = int(url_week_id) if url_week_id else (week.pk if week else None)
         viewed_recipe_code_id = int(url_code_id) if url_code_id else None
+        # Broader than viewed_recipe_code_id (which is only set once a specific
+        # code is being browsed) — this also covers the recipes landing page,
+        # which has no code_id in its URL but should still expand the toggle.
+        viewing_recipes = url_name in ("recipes", "recipes_code", "recipe_detail")
+        
 
         # Group this county's recipes by code, in code order, each list ordered
         # by recipe_number — mirrors nav_weeks/nav_categories but nested, since
@@ -57,4 +65,5 @@ def sidebar_context(request):
         "nav_viewed_week_id": viewed_week_id,
         "nav_recipe_codes": recipe_codes,
         "nav_viewed_recipe_code_id": viewed_recipe_code_id,
+        "nav_viewing_recipes": viewing_recipes,
     }

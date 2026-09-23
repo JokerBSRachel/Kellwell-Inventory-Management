@@ -1,0 +1,8 @@
+<div class="page-tabs">
+    {% for cr in county_recipes %}
+    <a href="{% url 'recipe_detail' recipe.recipe_code.pk cr.pk %}"
+       class="tab-link{% if county_recipe and cr.pk == county_recipe.pk %} active-tab{% endif %}">
+        {{ recipe.recipe_code.recipe_code }}-{{ cr.recipe_number }}
+    </a>
+    {% endfor %}
+</div>

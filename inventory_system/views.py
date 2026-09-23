@@ -11,7 +11,7 @@ from django.http import JsonResponse, Http404
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, \
                     WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll, \
-                    CountyRecipe
+                    CountyRecipe, RecipeCode
 from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
@@ -1154,26 +1154,55 @@ def recipes_landing(request):
 
 @login_required
 def recipe_code(request, code_id):
-    """Redirects to the first recipe (by recipe_number) within this code, for this county."""
-    access = get_user_access(request.user)
+    """Landing page for one recipe code: lists every recipe this county has
+    under it, each linking to its own recipe_detail page."""
     county = resolve_county(request)
-    first = CountyRecipe.objects.filter(
+    code = get_object_or_404(RecipeCode, pk=code_id)
+    county_recipes = CountyRecipe.objects.filter(
         county=county, recipe__recipe_code_id=code_id
-    ).order_by("recipe_number").first()
-    if not first:
+    ).select_related("recipe").order_by("recipe_number")
+    if not county_recipes.exists():
         raise Http404("No recipes found for this code.")
-    return redirect("recipe_detail", code_id=code_id, county_recipe_id=first.pk)
+    return render(request, "inventory_system/recipe_code_landing.html", {
+        "code": code,
+        "county_recipes": county_recipes,
+    })
 
 
 @login_required
 def recipe_detail(request, code_id, county_recipe_id):
-    # Stub for now — the live-scaling ingredient/instructions "spreadsheet" view
-    # (portions-to-prepare input, ingredient math) is the next step, not built yet.
-    access = get_user_access(request.user)
     county = resolve_county(request)
     county_recipe = get_object_or_404(
-        CountyRecipe, pk=county_recipe_id, county=county, recipe__recipe_code_id=code_id
+        CountyRecipe.objects.select_related("recipe__recipe_code"),
+        pk=county_recipe_id, county=county, recipe__recipe_code_id=code_id
     )
+    ingredients = county_recipe.recipe.ingredients.all()
+    # Every recipe this county has under the same code — drives the
+    # Excel-style tab bar at the bottom of the page.
+    sibling_recipes = CountyRecipe.objects.filter(
+        county=county, recipe__recipe_code_id=code_id
+    ).order_by("recipe_number")
     return render(request, "inventory_system/recipe_detail.html", {
         "county_recipe": county_recipe,
+        "recipe": county_recipe.recipe,
+        "ingredients": ingredients,
+        "county_recipes": sibling_recipes,
     })
+
+
+@login_required
+@require_POST
+def save_recipe_servings(request, county_recipe_id):
+    """Autosave endpoint — fires on a debounce after the employee stops typing
+    in the servings/sheetpans input, so a refresh doesn't reset it to the default."""
+    county = resolve_county(request)
+    county_recipe = get_object_or_404(CountyRecipe, pk=county_recipe_id, county=county)
+    try:
+        servings = Decimal(request.POST.get("servings", ""))
+    except (InvalidOperation, TypeError):
+        return JsonResponse({"error": "Servings must be a number."}, status=400)
+    if servings < 0:
+        return JsonResponse({"error": "Servings cannot be negative."}, status=400)
+    county_recipe.last_servings = servings
+    county_recipe.save(update_fields=["last_servings"])
+    return JsonResponse({"success": True, "servings": str(servings)})

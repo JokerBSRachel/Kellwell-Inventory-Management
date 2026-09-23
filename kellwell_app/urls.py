@@ -47,4 +47,5 @@ urlpatterns = [
     path('recipes/', inventory_views.recipes_landing, name='recipes'),
     path('recipes/code/<int:code_id>/', inventory_views.recipe_code, name='recipes_code'),
     path('recipes/code/<int:code_id>/recipe/<int:county_recipe_id>/', inventory_views.recipe_detail, name='recipe_detail'),
+    path('recipes/recipe/<int:county_recipe_id>/save-servings/', inventory_views.save_recipe_servings, name='save_recipe_servings'),
 ]

@@ -400,10 +400,24 @@ class RecipeCode(models.Model):
 
 
 class Recipe(models.Model):
+    PORTIONS = 0
+    SHEETPANS = 1
+    serving_unit_options = {
+        PORTIONS: "Portions",
+        SHEETPANS: "Sheetpans",
+    }
+
     recipe_code = models.ForeignKey(RecipeCode, on_delete=models.PROTECT)
     recipe_name = models.CharField(max_length=100)
     recipe_size = models.CharField(max_length=100)
     instructions = models.TextField(blank=True)
+    serving_unit = models.IntegerField(choices=serving_unit_options, default=0)
+        # Portions: ingredient amounts are per 100 servings, so the entered
+        # count is divided by 100 before scaling. Sheetpans: amounts are per
+        # 1 sheetpan, so the entered value multiplies directly, no division —
+        # this is the distinction the client's spreadsheet doesn't make
+        # explicit, which is why portion recipes require dividing by 100 by
+        # hand today (same underlying math as sheetpans, applied inconsistently).
 
     class Meta:
         ordering = ["recipe_code__recipe_code", "recipe_name"]
@@ -413,18 +427,37 @@ class Recipe(models.Model):
 
 
 class RecipeIngredient(models.Model):
-    """ingredient_amt is the quantity required for 100 servings; the app scales this
-    at display time based on the employee's entered serving count."""
+    """ingredient_amt is the quantity required for 100 servings (or per 1 sheetpan,
+    for Recipe.SHEETPANS recipes); the app scales this at display time based on
+    the employee's entered amount."""
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name="ingredients")
     ingredient_name = models.CharField(max_length=100)
-    ingredient_amt = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+        # Doubles as the heading text when is_label is True (e.g. "Topping").
+    ingredient_amt = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+        # Null for label rows (nothing to scale); required otherwise — see clean().
     ingredient_unit = models.CharField(max_length=50, blank=True)
+    is_label = models.BooleanField(default=False)
+        # True renders this row as a bold subheading (e.g. "Topping") instead
+        # of an ingredient — no amount/unit, not included in the scaling math.
+        # Where it appears in the list is controlled by sort_order, same as
+        # any ingredient, so a recipe can have several labelled sections.
+    sort_order = models.IntegerField(default=0)
+        # Display order within the recipe (same pattern as CountyItem.sort_order).
+        # Without this, ingredient order within one recipe isn't guaranteed —
+        # Meta.ordering below only sorts by which recipe a row belongs to.
 
     class Meta:
-        ordering = ["recipe__recipe_code__recipe_code", "recipe__recipe_name"]
+        ordering = ["recipe__recipe_code__recipe_code", "recipe__recipe_name", "sort_order"]
 
     def __str__(self):
         return self.ingredient_name + " - " + str(self.recipe)
+
+    def clean(self):
+        if self.is_label:
+            if self.ingredient_amt is not None or self.ingredient_unit:
+                raise ValidationError("A label row shouldn't have an amount or unit.")
+        elif self.ingredient_amt is None:
+            raise ValidationError("Amount is required unless this is a label row.")
 
 
 class CountyRecipe(models.Model):
@@ -439,6 +472,16 @@ class CountyRecipe(models.Model):
         # Optional county-specific override of recipe.recipe_name, same pattern
         # as CountyItem.display_name (e.g. two counties share a recipe *name*
         # in the app but it maps to a different underlying Recipe per county).
+    last_servings = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+        # Autosaved from the servings/sheetpans input on the recipe view, so
+        # the scaled amounts survive a refresh instead of resetting. Decimal
+        # (not integer) because sheetpan-type recipes take fractional values
+        # (e.g. 1.45) — the same field holds a whole-number portion count
+        # just as validly. Left null until first saved; save() below fills in
+        # a type-appropriate default (100 for portions, 1 for sheetpans) the
+        # first time, since a single static default can't be right for both.
+        # Shared county-wide state (employees share a per-county login, so
+        # there's no per-person value to keep separately).
 
     class Meta:
         constraints = [
@@ -466,3 +509,8 @@ class CountyRecipe(models.Model):
                 raise ValidationError(
                     f"Recipe number '{self.recipe_number}' is already used in this recipe code for this county."
                 )
+
+    def save(self, *args, **kwargs):
+        if self.last_servings is None:
+            self.last_servings = 100 if self.recipe.serving_unit == Recipe.PORTIONS else 1
+        super().save(*args, **kwargs)
