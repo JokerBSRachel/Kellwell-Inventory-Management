@@ -165,6 +165,14 @@ class CountyMealInline(admin.TabularInline):
         return field
 
 
+class CountyRecipeInline(admin.TabularInline):
+    model = CountyRecipe
+    extra = 1
+    fields = ["recipe", "recipe_number", "display_name"]
+        # last_servings excluded — that's autosaved app state from the recipe
+        # page, not something to hand-set while assigning a recipe here.
+
+
 class CountyItemInline(admin.TabularInline):
     model = CountyItem
     form = CountyItemInlineForm
@@ -197,7 +205,7 @@ class CountyAdmin(NoDeleteAdmin):
             field.queryset = field.queryset.exclude(pk__in=taken_ids)
         return field
 
-    inlines = [EmployeeInline, CountyCategoryInline, CountyMealInline]
+    inlines = [EmployeeInline, CountyCategoryInline, CountyMealInline, CountyRecipeInline]
 
     def get_fields(self, request, obj=None):
         fields = ["county_name", "state", "region", "manager", "login_user", "is_template", "is_active"]
@@ -236,6 +244,14 @@ class CountyAdmin(NoDeleteAdmin):
                 county=new_county,
                 meal=old_meal.meal,
                 is_active=old_meal.is_active,
+            )
+
+        for old_recipe in CountyRecipe.objects.filter(county=template_county):
+            CountyRecipe.objects.create(
+                county=new_county,
+                recipe=old_recipe.recipe,
+                recipe_number=old_recipe.recipe_number,
+                display_name=old_recipe.display_name,
             )
 
         initial_week, first_week = ensure_initial_weeks(new_county)

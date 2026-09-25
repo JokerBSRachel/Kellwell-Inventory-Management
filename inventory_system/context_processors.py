@@ -1,5 +1,6 @@
 from .access import get_user_access
 from .models import Week, CountyCategory, CountyRecipe
+from datetime import timedelta
 
 
 def sidebar_context(request):
@@ -17,24 +18,32 @@ def sidebar_context(request):
     recipe_codes = []
     viewed_recipe_code_id = None
     viewing_recipes = False
+    viewed_category_id = None
+    viewed_county_recipe_id = None
 
     if county:
         week = Week.objects.filter(county=county).order_by("-end_date").first()
         categories = CountyCategory.objects.filter(county=county, is_active=True)
         weeks = Week.objects.filter(county=county, is_initial=False).order_by("-end_date")
 
-        url_week_id = None
-        url_code_id = None
-        url_name = None
+        for w in weeks:
+            w.start_date = w.end_date - timedelta(days=6)
+
+        url_category_id = None
+        url_county_recipe_id = None
         if request.resolver_match:
             url_week_id = request.resolver_match.kwargs.get("week_id")
             url_code_id = request.resolver_match.kwargs.get("code_id")
+            url_category_id = request.resolver_match.kwargs.get("category_id")
+            url_county_recipe_id = request.resolver_match.kwargs.get("county_recipe_id")
             url_name = request.resolver_match.url_name
         viewed_week_id = int(url_week_id) if url_week_id else (week.pk if week else None)
         viewed_recipe_code_id = int(url_code_id) if url_code_id else None
-        # Broader than viewed_recipe_code_id (which is only set once a specific
-        # code is being browsed) — this also covers the recipes landing page,
-        # which has no code_id in its URL but should still expand the toggle.
+        viewed_category_id = int(url_category_id) if url_category_id else None
+        if viewed_category_id is None and url_name == "weekly_inventory":
+            first_category = categories.first()
+            viewed_category_id = first_category.pk if first_category else None
+        viewed_county_recipe_id = int(url_county_recipe_id) if url_county_recipe_id else None
         viewing_recipes = url_name in ("recipes", "recipes_code", "recipe_detail")
         
 
@@ -66,4 +75,6 @@ def sidebar_context(request):
         "nav_recipe_codes": recipe_codes,
         "nav_viewed_recipe_code_id": viewed_recipe_code_id,
         "nav_viewing_recipes": viewing_recipes,
+        "nav_viewed_category_id": viewed_category_id,
+        "nav_viewed_county_recipe_id": viewed_county_recipe_id,
     }

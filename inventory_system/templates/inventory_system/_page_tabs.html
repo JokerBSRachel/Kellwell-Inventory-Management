@@ -1,39 +1,39 @@
 <div class="page-tabs">
-    {% for cat in nav_categories %}
-      {% if week.status == 0 %}
-        <a href="{% url 'weekly_inventory_category' cat.pk %}"
-           class="tab-link{% if category and cat.pk == category.pk %} active-tab{% endif %}">
-          {{ cat.code.code_number }}-{{ cat.subcategory_id }}
-        </a>
-      {% else %}
-        <a href="{% url 'weekly_inventory_week' week.pk cat.pk %}"
-           class="tab-link{% if category and cat.pk == category.pk %} active-tab{% endif %}">
-          {{ cat.code.code_number }}-{{ cat.subcategory_id }}
-        </a>
-      {% endif %}
-    {% endfor %}
-
+  {% for cat in nav_categories %}
     {% if week.status == 0 %}
-        <a href="{% url 'totals' %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab{% endif %}">Totals</a>
+      <a href="{% url 'weekly_inventory_category' cat.pk %}"
+         class="tab-link{% if category and cat.pk == category.pk %} active-tab active-link{% endif %}">
+        {{ cat.code.code_number }}-{{ cat.subcategory_id }}
+      </a>
     {% else %}
-        <a href="{% url 'totals_week' week.pk %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab{% endif %}">Totals</a>
+      <a href="{% url 'weekly_inventory_week' week.pk cat.pk %}"
+         class="tab-link{% if category and cat.pk == category.pk %} active-tab active-link{% endif %}">
+        {{ cat.code.code_number }}-{{ cat.subcategory_id }}
+      </a>
     {% endif %}
+  {% endfor %}
 
-    {% if week.status == 0 %}
-      <a href="{% url 'daily_sales' %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab{% endif %}">Daily Sales</a>
-    {% else %}
-      <a href="{% url 'daily_sales_week' week.pk %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab{% endif %}">Daily Sales</a>
-    {% endif %}
+  {% if week.status == 0 %}
+      <a href="{% url 'totals' %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab active-link{% endif %}">Totals</a>
+  {% else %}
+      <a href="{% url 'totals_week' week.pk %}" class="tab-link{% if active_report_tab == 'totals' %} active-tab active-link{% endif %}">Totals</a>
+  {% endif %}
 
-    {% if week.status == 0 %}
-      <a href="{% url 'invoices_recap' %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab{% endif %}">Weekly Invoices Recap</a>
-    {% else %}
-      <a href="{% url 'invoices_recap_week' week.pk %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab{% endif %}">Weekly Invoices Recap</a>
-    {% endif %}
+  {% if week.status == 0 %}
+    <a href="{% url 'daily_sales' %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab active-link{% endif %}">Daily Sales</a>
+  {% else %}
+    <a href="{% url 'daily_sales_week' week.pk %}" class="tab-link{% if active_report_tab == 'daily_sales' %} active-tab active-link{% endif %}">Daily Sales</a>
+  {% endif %}
 
-    {% if week.status == 0 %}
-      <a href="{% url 'wor' %}" class="tab-link{% if active_report_tab == 'wor' %} active-tab{% endif %}">WOR</a>
-    {% else %}
-      <a href="{% url 'wor_week' week.pk %}" class="tab-link{% if active_report_tab == 'wor' %} active-tab{% endif %}">WOR</a>
-    {% endif %}
+  {% if week.status == 0 %}
+    <a href="{% url 'invoices_recap' %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab active-link{% endif %}">Weekly Invoices Recap</a>
+  {% else %}
+    <a href="{% url 'invoices_recap_week' week.pk %}" class="tab-link{% if active_report_tab == 'invoices_recap' %} active-tab active-link{% endif %}">Weekly Invoices Recap</a>
+  {% endif %}
+
+  {% if week.status == 0 %}
+    <a href="{% url 'wor' %}" class="tab-link{% if active_report_tab == 'wor' %} active-tab active-link{% endif %}">WOR</a>
+  {% else %}
+    <a href="{% url 'wor_week' week.pk %}" class="tab-link{% if active_report_tab == 'wor' %} active-tab active-link{% endif %}">WOR</a>
+  {% endif %}
 </div>

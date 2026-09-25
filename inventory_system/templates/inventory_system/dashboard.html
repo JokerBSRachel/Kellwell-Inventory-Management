@@ -2,11 +2,11 @@
 {% load static %}
 
 {% block content %}
-<div style="text-align: center; margin-top: 100px;">
-    <img src="{% static 'images/logo.jpg' %}" alt="Company Logo" style="max-width: 200px;">
+<div class="landing-page" style="text-align: center; margin-top: 100px;">
+    <img src="{% static 'images/logo.png' %}" alt="Company Logo">
 
     {% if show_picker %}
-    <h2>Select a county</h2>
+    <h2>Select a County</h2>
     <ul style="list-style: none;">
         {% for c in counties %}
         <li><a href="?county_id={{ c.pk }}">{{ c }}</a></li>

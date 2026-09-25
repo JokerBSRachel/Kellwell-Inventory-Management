@@ -1,20 +1,26 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h2>{{ nav_county }} Inventory</h2>
+<div class="landing-page">
+    <h2>{{ nav_county }} Inventory</h2>
 
-<ul>
-    {% for w in nav_weeks %}
-    <li>
-        {% if w.status == 0 %}
-        <a href="{% url 'weekly_inventory_category' nav_categories.0.pk %}">
-        {% else %}
-        <a href="{% url 'weekly_inventory_week' w.pk nav_categories.0.pk %}">
-        {% endif %}
-            Week ending {{ w.end_date }}
-            {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}(Locked){% endif %}
-        </a>
-    </li>
-    {% endfor %}
-</ul>
+    <ul>
+        {% for w in weeks %}
+        <li>
+            {% if w.status == 0 %}
+            <a href="{% url 'weekly_inventory_category' nav_categories.0.pk %}">
+            {% else %}
+            <a href="{% url 'weekly_inventory_week' w.pk nav_categories.0.pk %}">
+            {% endif %}
+            {% if not nav_county.is_template %}
+                {{ w.start_date|date:"n/j/Y" }} - {{ w.end_date|date:"n/j/Y" }}
+                    {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}{% endif %}
+            {% else %}
+                Weekly Template
+            {% endif %}
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
 {% endblock %}

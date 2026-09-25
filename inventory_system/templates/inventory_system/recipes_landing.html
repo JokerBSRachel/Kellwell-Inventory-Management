@@ -1,13 +1,15 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h2>{{ nav_county }} Recipes</h2>
+<div class="landing-page">
+    <h2>{{ nav_county }} Recipes</h2>
 
-<ul>
-    {% for entry in nav_recipe_codes %}
-    <li>
-        <a href="{% url 'recipes_code' entry.code.pk %}">{{ entry.code.recipe_code }} - {{ entry.code.recipe_code_name }}</a>
-    </li>
-    {% endfor %}
-</ul>
+    <ul>
+        {% for entry in nav_recipe_codes %}
+        <li>
+            <a href="{% url 'recipes_code' entry.code.pk %}">{{ entry.code.recipe_code }}-SET: {{ entry.code.recipe_code_name }}</a>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
 {% endblock %}

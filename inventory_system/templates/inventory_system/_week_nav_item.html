@@ -1,0 +1,60 @@
+<details{% if w.pk == nav_viewed_week_id %} open{% endif %}>
+        <summary>
+            {% if not nav_county.is_template %}<div class="tooltip-container">{% endif %}
+                {% if nav_categories %}
+                <a href="{% if w.status == 0 %}{% url 'weekly_inventory_category' nav_categories.0.pk %}{% else %}{% url 'weekly_inventory_week' w.pk nav_categories.0.pk %}{% endif %}">
+                    {% if not nav_county.is_template %}{{ w.end_date|date:"n/j/Y" }}{% else %}Weekly Template{% endif %}
+                    {% comment %} {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}{% if nav_role == "manager" or nav_role == "developer" %}(Admin Editable){% endif %}{% endif %} {% endcomment %}
+                </a>
+                {% else %}
+                {{ w.end_date|date:"n/j/Y" }}
+                {% comment %} {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}{% if nav_role == "manager" or nav_role == "developer" %}(Admin Editable){% endif %}{% endif %} {% endcomment %}
+                {% endif %}
+                {% if not nav_county.is_template %}<span class="tooltip-box">{{ w.start_date|date:"n/j/Y" }} - {{ w.end_date|date:"n/j/Y" }}</span>
+            </div>{% endif %}
+    </summary>
+<ul>
+    {% for cat in nav_categories %}
+    <li>
+        <div class="tooltip-container">
+            {% if w.status == 0 %}
+            <a href="{% url 'weekly_inventory_category' cat.pk %}"{% if cat.pk == nav_viewed_category_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+            {% else %}
+            <a href="{% url 'weekly_inventory_week' w.pk cat.pk %}"{% if cat.pk == nav_viewed_category_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+            {% endif %}
+            <span class="tooltip-box">{{ cat.code.code_number }}: {{ cat.code.code_name }}</span>
+        </div>
+    </li>
+    {% endfor %}
+    {% if not nav_county.is_template %}
+    <li>
+        {% if w.status == 0 %}
+        <a href="{% url 'totals' %}"{% if active_report_tab == 'totals' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Totals</a>
+        {% else %}
+        <a href="{% url 'totals_week' w.pk %}"{% if active_report_tab == 'totals' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Totals</a>
+        {% endif %}
+    </li>
+    <li>
+        {% if w.status == 0 %}
+        <a href="{% url 'daily_sales' %}"{% if active_report_tab == 'daily_sales' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Daily Sales</a>
+        {% else %}
+        <a href="{% url 'daily_sales_week' w.pk %}"{% if active_report_tab == 'daily_sales' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Daily Sales</a>
+        {% endif %}
+    </li>
+    <li>
+        {% if w.status == 0 %}
+        <a href="{% url 'invoices_recap' %}"{% if active_report_tab == 'invoices_recap' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Weekly Invoices Recap</a>
+        {% else %}
+        <a href="{% url 'invoices_recap_week' w.pk %}"{% if active_report_tab == 'invoices_recap' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>Weekly Invoices Recap</a>
+        {% endif %}
+    </li>
+    <li>
+        {% if w.status == 0 %}
+        <a href="{% url 'wor' %}"{% if active_report_tab == 'wor' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>WOR</a>
+        {% else %}
+        <a href="{% url 'wor_week' w.pk %}"{% if active_report_tab == 'wor' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>WOR</a>
+        {% endif %}
+    </li>
+    {% endif %}
+</ul>
+</details>

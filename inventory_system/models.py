@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -82,7 +83,10 @@ class County(models.Model):
         ordering = ["-is_active", "county_name", "state__state_abbreviation"]
 
     def __str__(self):
-        return self.county_name + " County, " + self.state.state_abbreviation
+        if not self.is_template:
+            return self.county_name + " County, " + self.state.state_abbreviation
+        else:
+            return self.county_name
 
 
 class Employee(models.Model):
@@ -123,8 +127,8 @@ class Week(models.Model):
 class WeeklyPayroll(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT) # Preserve historical records
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
-    regular_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    overtime_hours = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    regular_hours = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    overtime_hours = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
     overtime_explanation = models.TextField(blank=True)
 
     class Meta:
@@ -301,10 +305,10 @@ class Inventory(models.Model):
     """Each instance represents the inventory of an item in a county within one week"""
     county_item = models.ForeignKey(CountyItem, on_delete=models.PROTECT)
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
-    end_price = models.DecimalField(max_digits=6, decimal_places=2, default=0.00) # price per unit
-    end_received_1 = models.DecimalField(max_digits=6, decimal_places=2, default=0.00) # shipment(s) during the week
-    end_received_2 = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
-    end_inventory = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    end_price = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00")) # price per unit
+    end_received_1 = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00")) # shipment(s) during the week
+    end_received_2 = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
+    end_inventory = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
     deep_dive = models.TextField(blank=True)
     is_new_item = models.BooleanField(default=False) 
 
@@ -322,7 +326,7 @@ class Invoice(models.Model):
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
     vendor = models.ForeignKey(Vendor, on_delete=models.PROTECT)
     invoice_number = models.CharField(max_length=100)
-    tax = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    tax = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
         ordering = ["-week__end_date", "week__county__county_name", "week__county__state__state_abbreviation", "vendor__vendor_name", "invoice_number"]
@@ -334,7 +338,7 @@ class Invoice(models.Model):
 class InvoiceLineItem(models.Model):
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT)
     code = models.ForeignKey(FoodCode, on_delete=models.PROTECT)
-    amount = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
         constraints = [

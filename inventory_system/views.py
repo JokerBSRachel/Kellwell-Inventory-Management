@@ -1051,7 +1051,10 @@ def wor(request, week_id=None):
     employees = list(Employee.objects.filter(county=county, is_active=True))
     payroll_by_employee = {}
     for employee in employees:
-        payroll, _ = WeeklyPayroll.objects.get_or_create(employee=employee, week=week)
+        payroll, _ = WeeklyPayroll.objects.get_or_create(
+            employee=employee, week=week,
+            defaults={"regular_hours": Decimal("0.00"), "overtime_hours": Decimal("0.00")},
+        )
         payroll_by_employee[employee.pk] = payroll
 
     if request.method == "POST":
@@ -1140,9 +1143,14 @@ def wor(request, week_id=None):
 
 @login_required
 def inventory_landing(request):
-    """Lists all weeks for the county; each links to that week's first category
-    page (nav_weeks/nav_categories are already available via sidebar_context)."""
-    return render(request, "inventory_system/inventory_landing.html")
+    """Lists all weeks for the county with their start and end dates."""
+    county = resolve_county(request)
+    weeks = Week.objects.filter(county=county, is_initial=False).order_by("-end_date")
+    for w in weeks:
+        w.start_date = w.end_date - timedelta(days=6)
+    return render(request, "inventory_system/inventory_landing.html", {
+        "weeks": weeks,
+    })
 
 
 @login_required

@@ -4,119 +4,100 @@
 
 <head>
     <title>Kellwell Inventory</title>
-    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <script src="{% static 'js/decimal_math.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <link rel="preconnect" href="https://googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://googleapis.com/css2?family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 
 <body>
     <div style="display: flex;">
-        <nav style="width: 225px; border-right: 1px solid #ccc;">
-            <img src="{% static 'images/logo.jpg' %}" alt="Company Logo" style="max-width: 150px;">
-            <p>Welcome back, {{ request.user.get_username }}</p>
-            <form method="post" action="{% url 'logout' %}">
-                {% csrf_token %}
-                <button type="submit">Sign out</button>
-            </form>
+        <nav class="nav-bar">
+            <div class="log-out"> 
+                <div class="nav-logo-container">
+                    <img src="{% static 'images/logo.png' %}" alt="Company Logo">
+                </div>
+                <p class="welcome-back bold-text center-align">Welcome back, {{ request.user.get_username }}</p>
+                <form class="sign-out-form center-align" method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button class="sign-out-button" type="submit">Sign out</button>
+                </form>
+            </div>
+            
 
             {% if nav_counties.count > 1 %}
-            <p>You are viewing {{ nav_county }}.<br>
-                <a href="{% url 'dashboard' %}?switch=1">Switch county</a>
-            </p>
-            {% endif %}
-
-            
-            {% if nav_county %}
-
-            {% if not nav_county.is_template %}
-            <p><a href="{% url 'roll_to_next_week' %}">Roll to next week</a></p>
-            {% endif %}
-
-            <details{% if not nav_viewing_recipes %} open{% endif %}>
-                <summary><a href="{% url 'inventory_landing' %}"><strong>Inventory</strong></a></summary>
-
-
-            <div class="week-nav">
-                {% for w in nav_weeks %}
-                <details{% if w.pk == nav_viewed_week_id %} open{% endif %}>
-                    <summary>
-                        {% if nav_categories %}
-                        <a href="{% if w.status == 0 %}{% url 'weekly_inventory_category' nav_categories.0.pk %}{% else %}{% url 'weekly_inventory_week' w.pk nav_categories.0.pk %}{% endif %}">
-                            Week ending {{ w.end_date }}
-                            {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}(Locked){% endif %}
-                        </a>
-                        {% else %}
-                        Week ending {{ w.end_date }}
-                        {% if w.pk == nav_week.pk %}(Current){% elif w.status == 1 %}(Admin Editable){% else %}(Locked){% endif %}
-                        {% endif %}
-                    </summary>
-                <ul>
-                    {% for cat in nav_categories %}
-                    <li>
-                        {% if w.status == 0 %}
-                        <a href="{% url 'weekly_inventory_category' cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
-                        {% else %}
-                        <a href="{% url 'weekly_inventory_week' w.pk cat.pk %}">{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                    <li>
-                        {% if w.status == 0 %}
-                        <a href="{% url 'totals' %}">Totals</a>
-                        {% else %}
-                        <a href="{% url 'totals_week' w.pk %}">Totals</a>
-                        {% endif %}
-                    </li>
-                    <li>
-                        {% if w.status == 0 %}
-                        <a href="{% url 'daily_sales' %}">Daily Sales</a>
-                        {% else %}
-                        <a href="{% url 'daily_sales_week' w.pk %}">Daily Sales</a>
-                        {% endif %}
-                    </li>
-                    <li>
-                        {% if w.status == 0 %}
-                        <a href="{% url 'invoices_recap' %}">Weekly Invoices Recap</a>
-                        {% else %}
-                        <a href="{% url 'invoices_recap_week' w.pk %}">Weekly Invoices Recap</a>
-                        {% endif %}
-                    </li>
-                    <li>
-                        {% if w.status == 0 %}
-                        <a href="{% url 'wor' %}">WOR</a>
-                        {% else %}
-                        <a href="{% url 'wor_week' w.pk %}">WOR</a>
-                        {% endif %}
-                    </li>
-                </ul>
-            </details>
-            {% endfor %}
+            <div class="switch-county">
+                <p>You are viewing {{ nav_county }}.<br>
+                    <a href="{% url 'dashboard' %}?switch=1">Switch county</a>
+                </p>
             </div>
-            </details>
-
-            <details{% if nav_viewing_recipes %} open{% endif %}>
-                <summary><a href="{% url 'recipes' %}"><strong>Recipes</strong></a></summary>
-
-                <div class="recipe-nav">
-                    {% for entry in nav_recipe_codes %}
-                    <details{% if entry.code.pk == nav_viewed_recipe_code_id %} open{% endif %}>
-                        <summary>
-                            <a href="{% url 'recipes_code' entry.code.pk %}">{{ entry.code.recipe_code }} - {{ entry.code.recipe_code_name }}</a>
-                        </summary>
-                        <ul>
-                            {% for cr in entry.recipes %}
-                            <li>
-                                <a href="{% url 'recipe_detail' entry.code.pk cr.pk %}">{{ entry.code.recipe_code }}-{{ cr.recipe_number }} {{ cr.display }}</a>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </details>
-                    {% endfor %}
-                </div>
-            </details>
-
             {% endif %}
 
+            <div class="nav-menu">
+                {% if nav_county %}
+
+                {% if not nav_county.is_template %}
+                <div class="rollover-button">
+                    <a href="{% url 'roll_to_next_week' %}">Roll to next week</a>
+                </div>
+                {% endif %}
+
+                <details{% if not nav_viewing_recipes %} open{% endif %}>
+                    <summary><a href="{% url 'inventory_landing' %}"><strong>Inventory</strong></a></summary>
+
+                    <div class="week-nav">
+                        {% for w in nav_weeks %}
+                            {% if forloop.first %}
+                                {% include "inventory_system/_week_nav_item.html" %}
+                            {% endif %}
+                        {% endfor %}
+    
+                        {% if nav_weeks|length > 1 %}
+                        <details{% if nav_viewed_week_id and nav_viewed_week_id != nav_weeks.0.pk %} open{% endif %}>
+                            <summary><strong>Previous Weeks</strong></summary>
+                            <div class="previous-weeks">
+                                {% for w in nav_weeks %}
+                                    {% if not forloop.first %}
+                                        {% include "inventory_system/_week_nav_item.html" %}
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        </details>
+                        {% endif %}
+                    </div>
+                </details>
+
+                <details{% if nav_viewing_recipes %} open{% endif %}>
+                    <summary><a href="{% url 'recipes' %}"><strong>Recipes</strong></a></summary>
+
+                    <div class="recipe-nav">
+                        {% for entry in nav_recipe_codes %}
+                        <details{% if entry.code.pk == nav_viewed_recipe_code_id %} open{% endif %}>
+                            <summary>
+                                <div class="tooltip-container">
+                                    <a href="{% url 'recipes_code' entry.code.pk %}">{{ entry.code.recipe_code }}-SET</a>
+                                    <span class="tooltip-box">{{ entry.code.recipe_code }}-SET: {{ entry.code.recipe_code_name }}</span>
+                                </div>
+                            </summary>
+                            <ul>
+                                {% for cr in entry.recipes %}
+                                <li>
+                                    <div class="tooltip-container">
+                                        <a href="{% url 'recipe_detail' entry.code.pk cr.pk %}"{% if cr.pk == nav_viewed_county_recipe_id %} class="active-link"{% endif %}>{{ entry.code.recipe_code }}-{{ cr.recipe_number }}</a>
+                                        <span class="tooltip-box">{{ entry.code.recipe_code }}-{{ cr.recipe_number }}: {{ cr.display }}</span>
+                                    </div>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </details>
+                        {% endfor %}
+                    </div>
+                </details>
+
+                {% endif %}
+            </div>    
             
         </nav>
 
