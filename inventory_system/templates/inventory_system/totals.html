@@ -2,42 +2,44 @@
 
 {% block content %}
 <h1>{{ county }} Totals</h1>
-<h3>Week ending {{ week.end_date }}</h3>
+<h3>Week ending {{ week.end_date|date:"m/d/y" }}</h3>
 
-<table border="1" cellpadding="6">
+<table cellpadding="6">
     <tr>
         <th></th>
         {% for col in food_columns %}
         <th>{{ col.code_number }}</th>
         {% endfor %}
-        <th>Food Total</th>
+        <th><strong>Food Total</strong></th>
         {% for col in nonfood_columns %}
         <th>{{ col.code_number }}</th>
         {% endfor %}
-        <th>Inventory Total</th>
+        <th><strong>Inventory Total</strong></th>
     </tr>
+    <tbody>
     <tr>
         <td><strong>Beginning</strong></td>
         {% for col in food_columns %}
-        <td>${{ col.beginning|floatformat:2 }}</td>
+        <td>${{ col.beginning|floatformat:"2g" }}</td>
         {% endfor %}
-        <td><strong>${{ food_total_beginning|floatformat:2 }}</strong></td>
+        <td><strong>${{ food_total_beginning|floatformat:"2g" }}</strong></td>
         {% for col in nonfood_columns %}
         <td>${{ col.beginning|floatformat:2 }}</td>
         {% endfor %}
-        <td><strong>${{ grand_total_beginning|floatformat:2 }}</strong></td>
+        <td><strong>${{ grand_total_beginning|floatformat:"2g" }}</strong></td>
     </tr>
     <tr>
         <td><strong>Ending</strong></td>
         {% for col in food_columns %}
         <td>${{ col.ending|floatformat:2 }}</td>
         {% endfor %}
-        <td><strong>${{ food_total_ending|floatformat:2 }}</strong></td>
+        <td><strong>${{ food_total_ending|floatformat:"2g" }}</strong></td>
         {% for col in nonfood_columns %}
-        <td>${{ col.ending|floatformat:2 }}</td>
+        <td>${{ col.ending|floatformat:"2g" }}</td>
         {% endfor %}
-        <td><strong>${{ grand_total_ending|floatformat:2 }}</strong></td>
+        <td><strong>${{ grand_total_ending|floatformat:"2g" }}</strong></td>
     </tr>
+</tbody>
 </table>
 
 {% include "inventory_system/_signoff.html" %}

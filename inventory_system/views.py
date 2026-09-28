@@ -822,18 +822,12 @@ def invoices_recap(request, week_id=None):
     ending_nonfood_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
     ending_all_total = ending_food_total + ending_nonfood_total
 
-    # Tax has no beginning/ending inventory concept — it only ever gets summed
-    # once, in the Sheet Total row itself. These two derived rows use the
-    # category-only nonfood sum (sheet_totals), NOT sheet_nonfood_total, which
-    # deliberately includes tax for the Sheet Total row's own display.
-    sheet_nonfood_excl_tax = sum((sheet_totals[c.pk] for c in nonfood_codes), Decimal("0.00"))
-
     total_sheet_and_beginning_food = sheet_food_total + beginning_food_total
-    total_sheet_and_beginning_nonfood = sheet_nonfood_excl_tax + beginning_nonfood_total
+    total_sheet_and_beginning_nonfood = sheet_nonfood_total + beginning_nonfood_total
     total_sheet_and_beginning_all = total_sheet_and_beginning_food + total_sheet_and_beginning_nonfood
 
     cost_for_week_food = sheet_food_total + beginning_food_total - ending_food_total
-    cost_for_week_nonfood = sheet_nonfood_excl_tax + beginning_nonfood_total - ending_nonfood_total
+    cost_for_week_nonfood = sheet_nonfood_total + beginning_nonfood_total - ending_nonfood_total
     cost_for_week_all = cost_for_week_food + cost_for_week_nonfood
 
     # Annotate each FoodCode with its sheet/beginning/ending/cost figures directly —
@@ -995,7 +989,7 @@ def wor(request, week_id=None):
         code.cost_for_week = str(round_cents(cost_for_week))
 
     sheet_food_total = sum((sheet_by_code.get(c.pk) or Decimal("0.00") for c in food_codes), Decimal("0.00"))
-    sheet_nonfood_total = sum((sheet_by_code.get(c.pk) or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
+    sheet_nonfood_total = sum((sheet_by_code.get(c.pk) or Decimal("0.00") for c in nonfood_codes), Decimal("0.00")) + sheet_tax_total
     beginning_food_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
     beginning_nonfood_total = sum((beginning_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in nonfood_codes), Decimal("0.00"))
     ending_food_total = sum((ending_by_code.get(c.pk, {}).get("total") or Decimal("0.00") for c in food_codes), Decimal("0.00"))
@@ -1111,7 +1105,7 @@ def wor(request, week_id=None):
         "sheet_food_total": str(round_cents(sheet_food_total)),
         "sheet_nonfood_total": str(round_cents(sheet_nonfood_total)),
         "sheet_tax_total": str(round_cents(sheet_tax_total)),
-        "sheet_all_total": str(round_cents(sheet_food_total + sheet_nonfood_total + sheet_tax_total)),
+        "sheet_all_total": str(round_cents(sheet_food_total + sheet_nonfood_total)),
         "beginning_food_total": str(round_cents(beginning_food_total)),
         "beginning_nonfood_total": str(round_cents(beginning_nonfood_total)),
         "beginning_all_total": str(round_cents(beginning_food_total + beginning_nonfood_total)),

@@ -1,8 +1,10 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h1>{{ county }} Weekly Invoice Recap</h1>
-<h3>Week ending {{ week.end_date }}</h3>
+<div class="header">
+    <h1>{{ county }} Weekly Invoice Recap</h1>
+    <h3>Week ending {{ week.end_date|date:"m/d/y" }}</h3>
+</div>
 
 {% if messages %}
 <ul>
@@ -20,7 +22,7 @@
 
 <form method="post">
     {% csrf_token %}
-    <table border="1" cellpadding="6">
+    <table cellpadding="6">
         <tr>
             <th colspan="2">Invoice</th>
             <th colspan="{{ food_codes|length }}">Food Items</th>
@@ -48,17 +50,20 @@
         {% for row in grid_rows %}
         <tr class="invoice_row" data-invoice-id="{{ row.invoice_id }}">
             <td>
-                {% if is_editable %}
-                <button type="submit"
-                        style="display: inline;"
-                        formaction="{% url 'delete_invoice' row.invoice_id %}"
-                        onclick="return confirm('Remove this invoice from the sheet?');">
-                X
-                </button>
-                <input type="text" list="vendor-options" name="vendor_{{ row.invoice_id }}" value="{{ row.vendor_name }}" style="width: 120px;">
-                {% else %}
-                {{ row.vendor_name }}
-                {% endif %}
+                <div class="vendor-cell">
+                    {% if is_editable %}
+                    <button class="delete"
+                            type="submit"
+                            style="display: inline;"
+                            formaction="{% url 'delete_invoice' row.invoice_id %}"
+                            onclick="return confirm('Remove this invoice from the sheet?');">
+                    X
+                    </button>
+                    <input type="text" list="vendor-options" name="vendor_{{ row.invoice_id }}" value="{{ row.vendor_name }}" style="width: 120px;">
+                    {% else %}
+                    {{ row.vendor_name }}
+                    {% endif %}
+                </div>
             </td>
             <td>
                 {% if is_editable %}
@@ -76,7 +81,7 @@
                 {% endif %}
             </td>
             {% endfor %}
-            <td class="row-food-total">${{ row.food_total }}</td>
+            <td class="row-food-total">${{ row.food_total|floatformat:"2g" }}</td>
             {% for cell in row.nonfood_cells %}
             <td>
                 {% if is_editable %}
@@ -93,8 +98,8 @@
                 {% if row.tax %}{{ row.tax }}{% endif %}
                 {% endif %}
             </td>
-            <td class="row-nonfood-total">${{ row.nonfood_total }}</td>
-            <td class="row-all-total">${{ row.all_total }}</td>
+            <td class="row-nonfood-total">${{ row.nonfood_total|floatformat:"2g" }}</td>
+            <td class="row-all-total">${{ row.all_total|floatformat:"2g" }}</td>
         </tr>
         {% endfor %}
         </tbody>
@@ -113,81 +118,83 @@
             </td>
             <td>
                 <input type="text" name="invoice_number" placeholder="Invoice #" formaction="{% url 'add_invoice' %}">
+            </td>
+            <td>
                 <input type="hidden" name="week_id" value="{{ week.pk }}" formaction="{% url 'add_invoice' %}">
                 <button type="submit" formaction="{% url 'add_invoice' %}">Add</button>
             </td>
-            <td colspan="13"></td>
+            <td colspan="12"></td>
         </tr>
         <tr id="sheet-total-row">
             <td colspan="2" style="text-align: right;"><strong>Sheet Total</strong></td>
             {% for code in food_codes %}
-            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="true"><strong>${{ code.sheet_total }}</strong></td>
+            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="true"><strong>${{ code.sheet_total|floatformat:"2g" }}</strong></td>
             {% endfor %}
-            <td id="sheet-food-total"><strong>${{ sheet_food_total }}</strong></td>
+            <td id="sheet-food-total"><strong>${{ sheet_food_total|floatformat:"2g" }}</strong></td>
             {% for code in nonfood_codes %}
-            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="false"><strong>${{ code.sheet_total }}</strong></td>
+            <td id="sheet-total-{{ code.pk }}" class="sheet-total-cell" data-code-id="{{ code.pk }}" data-is-food="false"><strong>${{ code.sheet_total|floatformat:"2g" }}</strong></td>
             {% endfor %}
-            <td id="sheet-tax-total"><strong>${{ sheet_tax_total }}</strong></td>
-            <td id="sheet-nonfood-total"><strong>${{ sheet_nonfood_total }}</strong></td>
-            <td id="sheet-all-total"><strong>${{ sheet_all_total }}</strong></td>
+            <td id="sheet-tax-total"><strong>${{ sheet_tax_total|floatformat:"2g" }}</strong></td>
+            <td id="sheet-nonfood-total"><strong>${{ sheet_nonfood_total|floatformat:"2g" }}</strong></td>
+            <td id="sheet-all-total"><strong>${{ sheet_all_total|floatformat:"2g" }}</strong></td>
         </tr>
         <tr>
             <td colspan="2" style="text-align: right;">Beginning Inventory</td>
             {% for code in food_codes %}
-            <td>${{ code.beginning }}</td>
+            <td>${{ code.beginning|floatformat:"2g" }}</td>
             {% endfor %}
-            <td>${{ beginning_food_total }}</td>
+            <td>${{ beginning_food_total|floatformat:"2g" }}</td>
             {% for code in nonfood_codes %}
-            <td>${{ code.beginning }}</td>
+            <td>${{ code.beginning|floatformat:"2g" }}</td>
             {% endfor %}
             <td></td>
-            <td>${{ beginning_nonfood_total }}</td>
-            <td>${{ beginning_all_total }}</td>
+            <td>${{ beginning_nonfood_total|floatformat:"2g" }}</td>
+            <td>${{ beginning_all_total|floatformat:"2g" }}</td>
         </tr>
         <tr>
             <td colspan="2" style="text-align: right;">Total of Sheet and Beginning Inventory</td>
             {% for code in food_codes %}
-            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning }}</td>
+            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning|floatformat:"2g" }}</td>
             {% endfor %}
-            <td id="sheet-and-beginning-food-total" data-beginning="{{ beginning_food_total_exact }}">${{ total_sheet_and_beginning_food }}</td>
+            <td id="sheet-and-beginning-food-total" data-beginning="{{ beginning_food_total_exact }}">${{ total_sheet_and_beginning_food|floatformat:"2g" }}</td>
             {% for code in nonfood_codes %}
-            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning }}</td>
+            <td id="sheet-and-beginning-{{ code.pk }}" class="sheet-and-beginning-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}">${{ code.total_sheet_and_beginning|floatformat:"2g" }}</td>
             {% endfor %}
-            <td id="sheet-and-beginning-tax-total">${{ sheet_tax_total }}</td>
-            <td id="sheet-and-beginning-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}">${{ total_sheet_and_beginning_nonfood }}</td>
-            <td id="sheet-and-beginning-all-total">${{ total_sheet_and_beginning_all }}</td>
+            <td id="sheet-and-beginning-tax-total">${{ sheet_tax_total|floatformat:"2g" }}</td>
+            <td id="sheet-and-beginning-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}">${{ total_sheet_and_beginning_nonfood|floatformat:"2g" }}</td>
+            <td id="sheet-and-beginning-all-total">${{ total_sheet_and_beginning_all|floatformat:"2g" }}</td>
         </tr>
         <tr>
             <td colspan="2" style="text-align: right;">Ending Inventory</td>
             {% for code in food_codes %}
-            <td>${{ code.ending }}</td>
+            <td>${{ code.ending|floatformat:"2g" }}</td>
             {% endfor %}
-            <td>${{ ending_food_total }}</td>
+            <td>${{ ending_food_total|floatformat:"2g" }}</td>
             {% for code in nonfood_codes %}
-            <td>${{ code.ending }}</td>
+            <td>${{ code.ending|floatformat:"2g" }}</td>
             {% endfor %}
             <td></td>
-            <td>${{ ending_nonfood_total }}</td>
-            <td>${{ ending_all_total }}</td>
+            <td>${{ ending_nonfood_total|floatformat:"2g" }}</td>
+            <td>${{ ending_all_total|floatformat:"2g" }}</td>
         </tr>
         <tr>
             <td colspan="2" style="text-align: right;"><strong>Cost for the Week</strong></td>
             {% for code in food_codes %}
-            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week }}</strong></td>
+            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week|floatformat:"2g" }}</strong></td>
             {% endfor %}
-            <td id="cost-for-week-food-total" data-beginning="{{ beginning_food_total_exact }}" data-ending="{{ ending_food_total_exact }}"><strong>${{ cost_for_week_food }}</strong></td>
+            <td id="cost-for-week-food-total" data-beginning="{{ beginning_food_total_exact }}" data-ending="{{ ending_food_total_exact }}"><strong>${{ cost_for_week_food|floatformat:"2g" }}</strong></td>
             {% for code in nonfood_codes %}
-            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week }}</strong></td>
+            <td id="cost-for-week-{{ code.pk }}" class="cost-for-week-cell" data-code-id="{{ code.pk }}" data-beginning="{{ code.beginning_exact }}" data-ending="{{ code.ending_exact }}"><strong>${{ code.cost_for_week|floatformat:"2g" }}</strong></td>
             {% endfor %}
-            <td id="cost-for-week-tax-total"><strong>${{ sheet_tax_total }}</strong></td>
-            <td id="cost-for-week-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}" data-ending="{{ ending_nonfood_total_exact }}"><strong>${{ cost_for_week_nonfood }}</strong></td>
-            <td id="cost-for-week-all-total"><strong>${{ cost_for_week_all }}</strong></td>
+            <td id="cost-for-week-tax-total"><strong>${{ sheet_tax_total|floatformat:"2g" }}</strong></td>
+            <td id="cost-for-week-nonfood-total" data-beginning="{{ beginning_nonfood_total_exact }}" data-ending="{{ ending_nonfood_total_exact }}"><strong>${{ cost_for_week_nonfood|floatformat:"2g" }}</strong></td>
+            <td id="cost-for-week-all-total"><strong>${{ cost_for_week_all|floatformat:"2g" }}</strong></td>
         </tr>
         
     </table>
 
     {% if is_editable %}
-    <button type="submit">Save</button>
+    <button type="submit" class="save-button">Save</button>
     {% endif %}
 </form>
 
@@ -254,10 +261,8 @@
         let grandTaxTotal = 0;
         document.querySelectorAll('.tax-input').forEach(function (input) { grandTaxTotal += parseAmt(input); });
 
-        // Sheet Total's own Total Non-food/Total all DO include tax.
-        // The two derived rows below (Total of Sheet and Beginning, Cost for
-        // the Week) do NOT — tax has no beginning/ending inventory concept.
-        const sheetNonfoodExclTax = grandNonfoodTotal;
+        const sabNonfood = sheetNonfoodWithTax + sabNonfoodBeginning;
+        const cfwNonfood = sheetNonfoodWithTax + cfwNonfoodBeginning - cfwNonfoodEnding;
         const sheetNonfoodWithTax = grandNonfoodTotal + grandTaxTotal;
 
         document.getElementById('sheet-food-total').innerHTML = '<strong>$' + grandFoodTotal.toFixed(2) + '</strong>';

@@ -1,8 +1,10 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h1>{{ county }} Daily Sales</h1>
-<h3>Week ending {{ week.end_date }}</h3>
+<div class="header">
+    <h1>{{ county }} Daily Sales</h1>
+    <h3>Week ending {{ week.end_date|date:"m/d/y" }}</h3>
+</div>
 
 {% if messages %}
 <ul>
@@ -14,7 +16,7 @@
 
 <form method="post">
     {% csrf_token %}
-    <table border="1" cellpadding="6">
+    <table cellpadding="6">
         <tr>
             <th>Day</th>
             <th>Date</th>
@@ -51,7 +53,7 @@
     </table>
 
     {% if is_editable %}
-    <button type="submit">Save</button>
+    <button type="submit" class="save-button">Save</button>
     {% endif %}
 </form>
 

@@ -26,8 +26,9 @@
     display: inline-block;
     cursor: pointer;
 }
-.tooltip-container .tooltip-box {
-    visibility: hidden;
+
+.tooltip-container .tooltip-box,
+.floating-tooltip {
     width: max-content;
     max-width: 170px;
     overflow-wrap: break-word;
@@ -38,17 +39,32 @@
     box-shadow: 0px 1px 5px 3px var(--color-secondary);
     text-align: center;
     padding: 5px;
+    visibility: hidden;
+    opacity: 0;
+    transition: var(--transition-default);
+}
+
+.tooltip-container .tooltip-box {
     position: absolute;
     z-index: 1;
     left: 100%;
     margin-left: 10px;
-    opacity: 0;
-    transition: var(--transition-default);
-
 }
+
 .tooltip-container:hover .tooltip-box {
     visibility: visible;
-    opacity: 1; 
+    opacity: 1;
+}
+
+.floating-tooltip {
+    position: fixed;
+    z-index: 30;
+    pointer-events: none;
+}
+
+.floating-tooltip.visible {
+    visibility: visible;
+    opacity: 1;
 }
 
 /* GLOBAL FONTS AND COLORS */
@@ -63,7 +79,7 @@ body {
     }  
     
     main{
-        padding: 30px;
+        padding: 30px 30px 50px 30px;
     }
 }
 
@@ -377,13 +393,13 @@ input[type="number"] {
     padding: 0px 8px;
 }
 
-td .item-name-cell {
+td .item-name-cell, td .vendor-cell {
     display: flex;
     align-items: center;
     gap: 4px;
 }
 
-td .item-name-cell button {
+td .item-name-cell button, button.delete {
     flex-shrink: 0;
     background-color: var(--color-red);
     color: white;
@@ -394,7 +410,7 @@ td .item-name-cell button {
     padding: 3px 6px 2px;
 }
 
-td .item-name-cell button:hover {
+td .item-name-cell button:hover, button.delete:hover {
     background-color: var(--color-lightred);
 }
 
@@ -496,3 +512,12 @@ td .item-name-cell> :last-child {
 }
 
 /* REPORTING TABS STYLING */
+.food-cost-week {
+    background-color: lightblue;
+    td {
+        border-top: 1px solid black;
+    }
+}
+.weeks-food-hand {
+    background-color: lightgreen;
+}
