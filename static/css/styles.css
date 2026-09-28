@@ -3,10 +3,14 @@
     --color-secondary: #7F8485;
     --color-background: #E6E6E6;
     --color-text: #323130;
+    --color-red: #e73636;
+    --color-lightred: #f08080;
     --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --font-numbers: 'Roboto Mono', monospace;
     --font-size-main: 16px;
     --transition-default: 0.3s ease;
+    --sidebar-width: 225px;
+    --header-height: 110px;
 }
 
 /* REUSABLE CLASSES */
@@ -52,11 +56,15 @@ body {
     font-family: var(--font-main);
     color: var(--color-text);
     font-size: var(--font-size-main);
-    margin: 0;
+    margin: 0px;
 
     nav, main {
         min-height: 100vh;
-    }      
+    }  
+    
+    main{
+        padding: 30px;
+    }
 }
 
 h1, h2 {
@@ -77,7 +85,7 @@ td {
 
 /* SIDEBAR */
 .nav-bar {
-    width: 225px;
+    width: var(--sidebar-width);
     border-right: 1px solid var(--color-primary);  
 
     .log-out, .switch-county {
@@ -127,7 +135,7 @@ td {
         margin-bottom: 10px;
 
         a {
-            background-color: #e73636;
+            background-color: var(--color-red);
             font-family: var(--font-main);
             font-size: var(--font-size-main);
             font-weight: 700;
@@ -142,7 +150,7 @@ td {
         }
 
         a:hover {
-            background-color: lightcoral;
+            background-color: var(--color-lightred);
         }
     }
 
@@ -205,6 +213,7 @@ td {
 
 /* DASHBOARD/LANDING PAGES */
 .landing-page {
+
     ul {
         list-style-type: none;
         padding: 0;
@@ -220,21 +229,178 @@ td {
 }
 
 
-.inventory_row input[type="number"] {
-    width: 50px;
+/* ROLLOVER CONFIRMATION PAGE */
+.rollover-confirm-page {
+    text-align: center;
+
+    button {
+        background-color: var(--color-red);
+        font-family: var(--font-main);
+        font-size: var(--font-size-main);
+        font-weight: 700;
+        text-transform: uppercase;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        padding: 10px 15px;
+        cursor: pointer;
+        text-decoration: none;
+        margin-bottom: 10px;
+        transition: var(--transition-default);
+    }
+
+    button:hover {
+        background-color: var(--color-lightred);
+    }
+
+    a {
+        
+        color: var(--color-primary);
+    }
+
+    a:hover {
+        color: var(--color-secondary);
+    }
 }
 
-#add-item-row input[type="text"] {
-    width: 120px;
+
+/* INVENTORY PAGES/OVERALL TABLE STYLING */
+.header {
+    background-color: white;
+    top: 0;
+    height: var(--header-height);
+    box-sizing: border-box;
+    z-index: 20;
+
+
+    h1, h3 {
+        margin: 0;
+        color: var(--color-text);
+    }
 }
 
-#add-item-row input[type="number"] {
-    width: 70px;
+.table-content {
+
+    thead {
+        position: sticky;
+        top: 20px;
+        z-index: 15;
+        background-color: white;
+    }
 }
 
-table {
+table { 
+    border-collapse: separate;
+    border-spacing: 0;
     width: 100%;
     font-size: 12px;
+}
+
+.section-labels{
+    background-color: var(--color-primary);
+    color: white;
+    font-size: 20px;
+    text-transform: uppercase;
+}
+
+td, th {
+    border-right: 1px solid black;
+    border-bottom: 1px solid black;
+}
+td:first-child, th:first-child {
+    border-left: 1px solid black;
+}
+tr:first-child th {
+    border-top: 1px solid black;
+}
+tr:last-child th {
+    border-bottom: 2px solid black;
+}
+
+.col-handle {
+    width: 1%;
+}
+
+.col-unit {
+    width: 9ch;
+}
+
+.col-num {
+    width: 10ch;
+}
+
+.col-total {
+    width: 10ch;
+}
+
+.col-usage {
+    width: 10ch;
+}
+
+.col-deep-dive {
+    width: 15ch;
+}
+
+table input[type="text"],
+table input[type="number"] {
+    width: 100%;
+    min-width: 5ch;
+    box-sizing: border-box;
+    font: inherit;
+    padding: 0;
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.prefixed-input {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.prefixed-input input {
+    flex: 1;
+    min-width: 0;
+}
+
+.drag-handle {
+    font-size: 14px;
+    padding: 0px 8px;
+}
+
+td .item-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+td .item-name-cell button {
+    flex-shrink: 0;
+    background-color: var(--color-red);
+    color: white;
+    border: none;
+    border-radius: 99px;
+    cursor: pointer;
+    transition: var(--transition-default);
+    padding: 3px 6px 2px;
+}
+
+td .item-name-cell button:hover {
+    background-color: var(--color-lightred);
+}
+
+td .item-name-cell> :last-child {
+    flex: 1;
+    min-width: 0;
 }
 
 .active-row {
@@ -247,12 +413,86 @@ table {
     background-color: #e0e0e0;
 }
 
-.deep-dive-btn.has-note {
-    background-color: darkgray;
-    border-radius: 2px;
-    border: 1px solid black;
+.deep-dive {
+    align-items: center;
+    text-align: center;
 }
 
-#invoice-body input[type="number"] {
-    max-width: 70px;
+.deep-dive-btn, #deep-dive-dialog button, table button:not(.delete) {
+    cursor: pointer;
+    font-family: var(--font-main);
+    padding: 1px 7px;
+    font-size: 12px;
+    color: var(--color-text);
+    border-radius: 2px;
+    border: 1px solid black;
+    transition: var(--transition-default);
 }
+
+
+
+.deep-dive-btn:hover, #deep-dive-dialog button:hover, table button:not(.delete):hover {
+    background-color: var(--color-secondary);
+    color: white;
+}
+
+.deep-dive-btn.has-note {
+    font-weight: bold;
+    border-width: 2px;
+    border-radius: 3px;
+}
+
+.save-button, .signoff-button {
+    background-color: var(--color-primary);
+    font-family: var(--font-main);
+    margin-top: 10px;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 5px 10px 6px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 16px;
+    transition: var(--transition-default);
+    cursor: pointer;
+}
+
+.save-button:hover, .signoff-button:hover {
+    background-color: color-mix(in oklab, var(--color-primary) 50%, white);
+}
+
+.page-tabs {
+    position: fixed;
+    bottom: 0;
+    left: calc(var(--sidebar-width) + 1px);
+    right: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background-color: white;
+    border-top: 1px solid var(--color-background);
+
+    a {
+        border-right: 1px solid var(--color-background);
+        text-decoration: none;
+        color: var(--color-text);
+        padding: 5px;
+        flex-shrink: 0;
+        white-space: nowrap;
+        transition: var(--transition-default);
+        font-weight: 500;
+    }
+
+    a:hover {
+        background-color: color-mix(in oklab, var(--color-primary) 50%, white);
+    }
+
+    .active-tab {
+        background-color: var(--color-primary);
+        color: white;
+        font-weight: 500;
+    }
+}
+
+/* REPORTING TABS STYLING */

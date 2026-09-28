@@ -1,236 +1,260 @@
 {% extends "inventory_system/base.html" %}
 
 {% block content %}
-<h1>{{ county }} Inventory</h1>
-<h3>Week ending {{ week.end_date }} — Category {{ category.code.code_number }}-{{ category.subcategory_id }}</h3>
-
-{% if messages %}
-<ul>
-    {% for message in messages %}
-    <li style="color: red;">
-        {{ message }}
-        {% if "undoable" in message.tags %}
-            <form method="post" action="{% url 'undo_last_action' %}" style="display: inline;">
-                {% csrf_token %}
-                <button type="submit" style="background:none; border:none; padding:0; color:blue; text-decoration:underline; cursor:pointer;">Undo?</button>
-            </form>
-        {% endif %}
-    </li>
-    {% endfor %}
-</ul>
-{% endif %}
-
-<datalist id="item-options">
-    {% for opt in item_options %}
-        <option value="{{ opt.item_name }}">
-    {% endfor %}
-</datalist>
-<datalist id="unit-options">
-    {% for opt in unit_options %}
-        <option value="{{ opt.unit_name }}">
-    {% endfor %}
-</datalist>
-
-<form method="post">
-    {% csrf_token %}
-    <table border="1" cellpadding="6">
-        <tr>
-            <th colspan="3">Item</th>
-            <th colspan="5">Beginning Inventory</th>
-            <th colspan="5">Ending Inventory</th>
-            <th colspan="2">Usage</th>
-        </tr>
-        <tr>
-            <th></th>
-            <th>Item Name</th>
-            <th>Unit</th>
-            <th>Price</th>
-            <th>Received 1</th>
-            <th>Received 2</th>
-            <th>Inventory</th>
-            <th>Total</th>
-            <th>Price</th>
-            <th>Received 1</th>
-            <th>Received 2</th>
-            <th>Inventory</th>
-            <th>Total</th>
-            <th>Total Usage</th>
-            <th>Deep Dive</th>
-        </tr>
-        <tbody id="sortable-body">
-        {% for row in table_rows %}
-        <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}" data-beginning-tenthousandths="{{ row.beginning_total_tenthousandths }}" data-ending-tenthousandths="{{ row.ending_total_tenthousandths }}">
-            <td class="drag-handle" style="cursor: grab;">☰</td>
-            <td>
-                {% if is_editable %}
-                    <button type="submit"
-                            style="display: inline;"
-                            formaction="{% url 'delete_item' row.inventory_id %}"
-                            onclick="return confirm('Remove {{ row.item_name }} from this sheet?{% if week.status == 1 %} This will also remove it from the current week.{% endif %}');">
-                    X
-                    </button>
-                {% endif %}
-                {% if row.allow_name_edit %}
-                <input type="text" name="item_name_{{ row.inventory_id }}" value="{{ row.item_name }}" style="width: 110px;">
-                {% else %}
-                    {{ row.item_name }}
-                {% endif %}
-            </td>
-            <td>
-                {% if row.allow_name_edit %}
-                <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}" style="width: 70px;" class="unit-input">
-                {% else %}
-                <span class="unit-text">{{ row.unit }}</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if row.allow_beginning_edit %}
-                $ <input type="number" step="0.01" name="begin_price_{{ row.inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
-                {% else %}
-                ${{ row.beginning_price|default_if_none:"0.00" }}
-                {% endif %}
-            </td>
-            <td>
-                {% if row.allow_beginning_edit %}
-                <input type="number" step="0.01" name="begin_received_1_{{ row.inventory_id }}" value="{% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}">
-                {% else %}
-                    {% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}
-                {% endif %}
-            </td>
-            <td>
-                {% if row.allow_beginning_edit %}
-                <input type="number" step="0.01" name="begin_received_2_{{ row.inventory_id }}" value="{% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}">
-                {% else %}
-                    {% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}
-                {% endif %}
-            </td>
-            <td class="beginning-inventory-text">
-                {% if row.allow_beginning_edit %}
-                  <input type="number" step="0.01" name="begin_inventory_{{ row.inventory_id }}" value="{{ row.beginning_inventory|default:'0.00' }}">
-                {% else %}
-                  {{ row.beginning_inventory|default_if_none:"0.00" }}
-                {% endif %}
-            </td>
-            <td class="beginning-total" style="{% if row.beginning_total == "0.00" %}background-color: lightcoral;{% endif %}">
-                ${{ row.beginning_total|default_if_none:"0.00" }}
-            </td>
-            <td>
-                {% if is_editable %}
-                    $ <input type="number" step="0.01" name="price_{{ row.inventory_id }}" value="{{ row.ending_price }}">
-                {% else %}
-                    ${{ row.ending_price }}
-                {% endif %}
-            </td>
-            <td>
-                {% if is_editable %}
-                <input type="number" step="0.01" name="received_1_{{ row.inventory_id }}" value="{% if row.ending_received_1 %}{{ row.ending_received_1 }}{% endif %}">
-                {% else %}
-                    {{ row.ending_received_1 }}
-                {% endif %}
-            </td>
-            <td>
-                {% if is_editable %}
-                <input type="number" step="0.01" name="received_2_{{ row.inventory_id }}" value="{% if row.ending_received_2 %}{{ row.ending_received_2 }}{% endif %}">
-                {% else %}
-                    {{ row.ending_received_2 }}
-                {% endif %}
-            </td>
-            <td>
-                {% if is_editable %}
-                <input type="number" step="0.01" name="inventory_{{ row.inventory_id }}"
-                    value="{{ row.ending_inventory }}">
-                {% else %}
-                {{ row.ending_inventory }}
-                {% endif %}
-            </td>
-            <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: lightcoral;{% endif %}">
-                ${{ row.ending_total }}
-            </td>
-            <td class="total-usage">
-                {{ row.total_usage|default_if_none:"0.00"}}
-            </td>
-            <td>
-                {% if is_editable %}
-                    <input type="hidden" id="deep_dive_input_{{ row.inventory_id }}" name="deep_dive_{{ row.inventory_id }}" value="{{ row.deep_dive }}">
-                    <button type="button"
-                            id="deep_dive_btn_{{ row.inventory_id }}"
-                            class="deep-dive-btn{% if row.deep_dive %} has-note{% endif %}"
-                            onclick="openDeepDiveModal('{{ row.inventory_id }}')">
-                        {% if row.deep_dive %}Edit note{% else %}Add note{% endif %}
-                    </button>
-                {% else %}
-                    {{ row.deep_dive|default:"" }}
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-        <tr>
-            <td colspan="15">
-              {% if is_editable %}
-              <button type="button" onclick="document.getElementById('add-item-row').style.display='table-row'">
-                Add Item
-              </button>
-              {% endif %}
-            </td>
-          </tr>
-          <tr id="add-item-row" style="display:none;">
-            <td></td>
-            <td>
-              <input type="text" name="item_name" list="item-options" placeholder="New item name" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-              <input type="text" name="item_unit" list="unit-options" placeholder="Unit" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-              <input type="number" step="0.01" name="starting_price" placeholder="Price" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-                <input type="number" step="0.01" name="starting_received_1" placeholder="0" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-                <input type="number" step="0.01" name="starting_received_2" placeholder="0" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-              <input type="number" step="0.01" name="starting_inventory" placeholder="Inventory" formaction="{% url 'add_item' %}">
-            </td>
-            <td>
-              <input type="hidden" name="category_id" value="{{ category.pk }}" formaction="{% url 'add_item' %}">
-              <input type="hidden" name="week_id" value="{{ week.pk }}" formaction="{% url 'add_item' %}">
-              <button type="submit" formaction="{% url 'add_item' %}">Add</button>
-            </td>
-            <td colspan="7"></td>
-          </tr>
-          <tr>
-                <td colspan="7"><strong></strong></td>
-                <td><strong>{{ week_start_date }}</strong></td>
-                <td colspan="4"><strong></strong></td>
-                <td><strong>{{ week_end_date }}</strong></td>
-                <td colspan="2"></td>
-          </tr>
-          <tr id="page-totals-row">
-                <td colspan="7" style="text-align: right;"><strong>Page Total</strong></td>
-                <td id="page-beginning-total"><strong>${{ page_beginning_total }}</strong></td>
-                <td colspan="4" style="text-align: right;"><strong>Page Total</strong></td>
-                <td id="page-ending-total"><strong>${{ page_ending_total }}</strong></td>
-                <td colspan="2"></td>
-            </tr>
-            {% if show_parent_total %}
-            <tr id="parent-totals-row" data-beginning-excl-current-tenthousandths="{{ parent_beginning_excl_current_tenthousandths }}" data-ending-excl-current-tenthousandths="{{ parent_ending_excl_current_tenthousandths }}">
-                <td colspan="7" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
-                <td id="parent-beginning-total"><strong>$0.00</strong></td>
-                <td colspan="4" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
-                <td id="parent-ending-total"><strong>$0.00</strong></td>
-                <td colspan="2"></td>
-            </tr>
+<div class="header">
+    <h1>{{ county }} Inventory</h1>
+    <h3>{{ week_start_date }} - {{ week_end_date }}: Category <span style="font-weight: bold;">{{ category.code.code_number }}-{{ category.subcategory_id }}</span></h3>
+</div>
+<div class="table-content">
+    {% if messages %}
+    <ul>
+        {% for message in messages %}
+        <li style="color: red;">
+            {{ message }}
+            {% if "undoable" in message.tags %}
+                <form method="post" action="{% url 'undo_last_action' %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" style="background:none; border:none; padding:0; color:blue; text-decoration:underline; cursor:pointer;">Undo?</button>
+                </form>
             {% endif %}
-    </table>
-
-    {% if is_editable %}
-    <button type="submit">Save</button>
+        </li>
+        {% endfor %}
+    </ul>
     {% endif %}
-</form>
 
+    <datalist id="item-options">
+        {% for opt in item_options %}
+            <option value="{{ opt.item_name }}">
+        {% endfor %}
+    </datalist>
+    <datalist id="unit-options">
+        {% for opt in unit_options %}
+            <option value="{{ opt.unit_name }}">
+        {% endfor %}
+    </datalist>
+
+    <form method="post">
+        {% csrf_token %}
+        <table cellpadding="4">
+            <colgroup>
+                <col class="col-handle">
+                <col>                        
+                <col class="col-unit">
+                <col class="col-num" span="4">  
+                <col class="col-total">
+                <col class="col-num" span="4">  
+                <col class="col-total">
+                <col class="col-usage">
+                <col class="col-deep-dive">
+            </colgroup>
+            <thead>
+            <tr class="section-labels">
+                <th colspan="3">{{ category.code.code_number }}-{{ category.subcategory_id }}</th>
+                <th colspan="5">Beginning Inventory</th>
+                <th colspan="5">Ending Inventory</th>
+                <th colspan="2">Usage</th>
+            </tr>
+            <tr class="section-sublabels">
+                <th></th>
+                <th>Item Name</th>
+                <th>Unit</th>
+                <th>Price</th>
+                <th>Received 1</th>
+                <th>Received 2</th>
+                <th>Inventory</th>
+                <th>Total</th>
+                <th>Price</th>
+                <th>Received 1</th>
+                <th>Received 2</th>
+                <th>Inventory</th>
+                <th>Total</th>
+                <th>Total Usage</th>
+                <th>Deep Dive</th>
+            </tr>
+        </thead>
+            <tbody id="sortable-body">
+            {% for row in table_rows %}
+            <tr class="inventory_row" data-county-item-id="{{ row.county_item_id }}" data-beginning-tenthousandths="{{ row.beginning_total_tenthousandths }}" data-ending-tenthousandths="{{ row.ending_total_tenthousandths }}">
+                <td class="drag-handle" style="cursor: grab;">☰</td>
+                <td>
+                    <div class="item-name-cell">
+                    {% if is_editable %}
+                        <button class="delete"
+                                type="submit"
+                                style="display: inline;"
+                                formaction="{% url 'delete_item' row.inventory_id %}"
+                                onclick="return confirm('Remove {{ row.item_name }} from this sheet?{% if week.status == 1 %} This will also remove it from the current week.{% endif %}');">
+                        X
+                        </button>
+                    {% endif %}
+                    {% if row.allow_name_edit %}
+                    <input type="text" name="item_name_{{ row.inventory_id }}" value="{{ row.item_name }}" >
+                    {% else %}
+                        <span>{{ row.item_name }}</span>
+                    {% endif %}
+                    </div>
+                </td>
+                <td>
+                    {% if row.allow_name_edit %}
+                    <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}"  class="unit-input">
+                    {% else %}
+                    <span class="unit-text">{{ row.unit }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.allow_beginning_edit %}
+                    <div class="prefixed-input">
+                        <span>$</span> 
+                        <input type="number" step="0.01" name="begin_price_{{ row.inventory_id }}" value="{{ row.beginning_price|default:'0.00' }}">
+                    </div>
+                    {% else %}
+                    ${{ row.beginning_price|default_if_none:"0.00" }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.allow_beginning_edit %}
+                    <input type="number" step="0.01" name="begin_received_1_{{ row.inventory_id }}" value="{% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}">
+                    {% else %}
+                        {% if row.beginning_received_1 %}{{ row.beginning_received_1 }}{% endif %}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.allow_beginning_edit %}
+                    <input type="number" step="0.01" name="begin_received_2_{{ row.inventory_id }}" value="{% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}">
+                    {% else %}
+                        {% if row.beginning_received_2 %}{{ row.beginning_received_2 }}{% endif %}
+                    {% endif %}
+                </td>
+                <td class="beginning-inventory-text">
+                    {% if row.allow_beginning_edit %}
+                    <input type="number" step="0.01" name="begin_inventory_{{ row.inventory_id }}" value="{{ row.beginning_inventory|default:'0.00' }}">
+                    {% else %}
+                    {{ row.beginning_inventory|default_if_none:"0.00" }}
+                    {% endif %}
+                </td>
+                <td class="beginning-total" style="{% if row.beginning_total == "0.00" %}background-color: lightcoral;{% endif %}">
+                    ${{ row.beginning_total|default_if_none:"0.00" }}
+                </td>
+                <td>
+                    {% if is_editable %}
+                    <div class="prefixed-input">
+                        <span>$</span> 
+                        <input type="number" step="0.01" name="price_{{ row.inventory_id }}" value="{{ row.ending_price }}">
+                    </div>
+                    {% else %}
+                        ${{ row.ending_price }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if is_editable %}
+                    <input type="number" step="0.01" name="received_1_{{ row.inventory_id }}" value="{% if row.ending_received_1 %}{{ row.ending_received_1 }}{% endif %}">
+                    {% else %}
+                        {{ row.ending_received_1 }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if is_editable %}
+                    <input type="number" step="0.01" name="received_2_{{ row.inventory_id }}" value="{% if row.ending_received_2 %}{{ row.ending_received_2 }}{% endif %}">
+                    {% else %}
+                        {{ row.ending_received_2 }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if is_editable %}
+                    <input type="number" step="0.01" name="inventory_{{ row.inventory_id }}"
+                        value="{{ row.ending_inventory }}">
+                    {% else %}
+                    {{ row.ending_inventory }}
+                    {% endif %}
+                </td>
+                <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: lightcoral;{% endif %}">
+                    ${{ row.ending_total }}
+                </td>
+                <td class="total-usage">
+                    {{ row.total_usage|default_if_none:"0.00"}}
+                </td>
+                <td class="deep-dive">
+                    {% if is_editable %}
+                        <input type="hidden" id="deep_dive_input_{{ row.inventory_id }}" name="deep_dive_{{ row.inventory_id }}" value="{{ row.deep_dive }}">
+                        <button type="button"
+                                id="deep_dive_btn_{{ row.inventory_id }}"
+                                class="deep-dive-btn{% if row.deep_dive %} has-note{% endif %}"
+                                onclick="openDeepDiveModal('{{ row.inventory_id }}')">
+                            {% if row.deep_dive %}Edit note{% else %}Add note{% endif %}
+                        </button>
+                    {% else %}
+                        {{ row.deep_dive|default:"" }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tr>
+                <td colspan="15">
+                {% if is_editable %}
+                <button type="button" onclick="document.getElementById('add-item-row').style.display='table-row'">
+                    Add Item
+                </button>
+                {% endif %}
+                </td>
+            </tr>
+            <tr id="add-item-row" style="display:none;">
+                <td></td>
+                <td>
+                <input type="text" name="item_name" list="item-options" placeholder="New item name" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                <input type="text" name="item_unit" list="unit-options" placeholder="Unit" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                <input type="number" step="0.01" name="starting_price" placeholder="Price" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                    <input type="number" step="0.01" name="starting_received_1" placeholder="0" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                    <input type="number" step="0.01" name="starting_received_2" placeholder="0" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                <input type="number" step="0.01" name="starting_inventory" placeholder="Inventory" formaction="{% url 'add_item' %}">
+                </td>
+                <td>
+                <input type="hidden" name="category_id" value="{{ category.pk }}" formaction="{% url 'add_item' %}">
+                <input type="hidden" name="week_id" value="{{ week.pk }}" formaction="{% url 'add_item' %}">
+                <button type="submit" formaction="{% url 'add_item' %}">Add</button>
+                </td>
+                <td colspan="7"></td>
+            </tr>
+            <tr>
+                    <td colspan="7"><strong></strong></td>
+                    <td><strong>{{ week_start_date }}</strong></td>
+                    <td colspan="4"><strong></strong></td>
+                    <td><strong>{{ week_end_date }}</strong></td>
+                    <td colspan="2"></td>
+            </tr>
+            <tr id="page-totals-row">
+                    <td colspan="7" style="text-align: right;"><strong>Page Total</strong></td>
+                    <td id="page-beginning-total"><strong>${{ page_beginning_total }}</strong></td>
+                    <td colspan="4" style="text-align: right;"><strong>Page Total</strong></td>
+                    <td id="page-ending-total"><strong>${{ page_ending_total }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+                {% if show_parent_total %}
+                <tr id="parent-totals-row" data-beginning-excl-current-tenthousandths="{{ parent_beginning_excl_current_tenthousandths }}" data-ending-excl-current-tenthousandths="{{ parent_ending_excl_current_tenthousandths }}">
+                    <td colspan="7" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
+                    <td id="parent-beginning-total"><strong>$0.00</strong></td>
+                    <td colspan="4" style="text-align: right;"><strong>{{ parent_code_number }} Total</strong></td>
+                    <td id="parent-ending-total"><strong>$0.00</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+                {% endif %}
+        </table>
+
+        {% if is_editable %}
+        <button class="save-button" type="submit">Save</button>
+        {% endif %}
+    </form>
+</div>
 {% include "inventory_system/_page_tabs.html" %}
 
 <dialog id="deep-dive-dialog">
