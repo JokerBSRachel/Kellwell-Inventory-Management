@@ -21,22 +21,22 @@
     <table class="recipe-ingredients">
         <thead>
             <tr>
-                <th>Ingredients</th>
-                <th>Amount</th>
-                <th></th>
+                <th><h3>Ingredients</h3></th>
+                <th colspan="2"><h3>Amount</h3></th>
             </tr>
         </thead>
         <tbody>
             {% for ingredient in ingredients %}
             {% if ingredient.is_label %}
             <tr class="ingredient-label-row">
-                <td colspan="3"><strong>{{ ingredient.ingredient_name }}</strong></td>
+                <td><strong>{{ ingredient.ingredient_name }}</strong></td>
+                <td colspan="2"></td>
             </tr>
             {% else %}
             <tr>
-                <td>{{ ingredient.ingredient_name }}</td>
+                <td class="ingredient-name">{{ ingredient.ingredient_name }}</td>
                 <td class="ingredient-amount" data-base-amt="{{ ingredient.ingredient_amt }}">--</td>
-                <td>{{ ingredient.ingredient_unit }}</td>
+                <td class="ingredient-unit">{{ ingredient.ingredient_unit }}</td>
             </tr>
             {% endif %}
             {% endfor %}
@@ -44,7 +44,7 @@
     </table>
 
     <div class="recipe-instructions">
-        <h3>Instructions</h3>
+        <h3>INSTRUCTIONS</h3>
         <p>{{ recipe.instructions|linebreaksbr }}</p>
     </div>
 </div>
