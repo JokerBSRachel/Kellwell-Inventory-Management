@@ -352,7 +352,7 @@ tr:last-child th {
 }
 
 .col-unit {
-    width: 9ch;
+    width: 12ch;
 }
 
 .col-num {
@@ -372,7 +372,8 @@ tr:last-child th {
 }
 
 table input[type="text"],
-table input[type="number"] {
+table input[type="number"],
+table select {
     width: 100%;
     min-width: 5ch;
     box-sizing: border-box;
@@ -389,6 +390,10 @@ input::-webkit-inner-spin-button {
 input[type="number"] {
     -moz-appearance: textfield;
     appearance: textfield;
+}
+
+select[name="item_unit"] {
+    color: var(--color-text);
 }
 
 .prefixed-input {
@@ -526,6 +531,11 @@ td .item-name-cell> :last-child {
 }
 
 /* REPORTING TABS STYLING */
+.average-meals .meal-average {
+    background-color: lightblue;
+}
+
+
 .food-cost-week {
     background-color: lightblue;
     td {

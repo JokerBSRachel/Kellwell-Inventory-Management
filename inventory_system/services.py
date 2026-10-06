@@ -85,6 +85,53 @@ def ensure_initial_weeks(county):
     return initial_week, first_week
 
 
+def negative_usage_rows(county, week):
+    """Returns the rows in `week` whose usage is negative, as a list of dicts
+    ordered the way the inventory tabs are. Usage uses the same formula as the
+    inventory sheet: the previous week's ending inventory plus this week's
+    received 1 and 2, minus this week's ending inventory. Rows with no
+    previous-week row have no defined usage and are skipped, matching the
+    sheet. Rows in inactive categories are skipped because they aren't
+    visible on any tab."""
+    previous_week = Week.objects.filter(
+        county=county, end_date__lt=week.end_date
+    ).order_by("-end_date").first()
+    if previous_week is None:
+        return []
+
+    beginning_by_item = {
+        row.county_item_id: row.end_inventory
+        for row in Inventory.objects.filter(week=previous_week)
+    }
+
+    rows = Inventory.objects.filter(
+        week=week, county_item__category__is_active=True
+    ).select_related(
+        "county_item__item", "county_item__unit", "county_item__category__code"
+    ).order_by(
+        "county_item__category__code__code_number",
+        "county_item__category__subcategory_id",
+        "county_item__sort_order",
+        "county_item_id",
+    )
+
+    negatives = []
+    for row in rows:
+        beginning = beginning_by_item.get(row.county_item_id)
+        if beginning is None:
+            continue
+        usage = (beginning + row.end_received_1 + row.end_received_2) - row.end_inventory
+        if usage < 0:
+            category = row.county_item.category
+            negatives.append({
+                "category": f"{category.code.code_number}-{category.subcategory_id}",
+                "name": row.county_item.display,
+                "unit": row.county_item.unit.unit_name if row.county_item.unit else "",
+                "usage": usage,
+            })
+    return negatives
+
+
 def rollover_county_week(county):
     """Rolls a county's current open week forward into a new week.
     Returns the newly created Week."""
@@ -95,6 +142,19 @@ def rollover_county_week(county):
         raise ValueError(f"No open week found for {county}. Cannot roll over.")
     except Week.MultipleObjectsReturned:
         raise ValueError(f"Multiple open weeks found for {county}. Fix data before rolling over.")
+
+    # Block the rollover while any item has negative usage. This must run
+    # before the first write below: the function isn't wrapped in a
+    # transaction, so raising after Week.objects.create would leave a
+    # half-built week behind.
+    negatives = negative_usage_rows(county, old_week)
+    if negatives:
+        shown = [f"{n['name']} ({n['category']})" for n in negatives[:5]]
+        extra = len(negatives) - len(shown)
+        summary = ", ".join(shown) + (f", and {extra} more" if extra else "")
+        raise ValueError(
+            f"Cannot roll over: {len(negatives)} item(s) have negative usage. Fix these first: {summary}."
+        )
 
     new_end_date = old_week.end_date + timedelta(days=7)
     new_week = Week.objects.create(county=county, end_date=new_end_date, status=0)

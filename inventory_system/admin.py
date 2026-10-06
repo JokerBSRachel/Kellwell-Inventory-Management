@@ -248,6 +248,8 @@ class CountyAdmin(NoDeleteAdmin):
             CountyMeal.objects.create(
                 county=new_county,
                 meal=old_meal.meal,
+                order=old_meal.order,
+                used_in_average=old_meal.used_in_average,
                 is_active=old_meal.is_active,
             )
 
@@ -394,7 +396,7 @@ class MealAdmin(NoDeleteAdmin):
 
 @admin.register(CountyMeal)
 class CountyMealAdmin(NoDeleteAdmin):
-    list_display = ("county", "meal", "is_active")
+    list_display = ("county", "order", "meal", "used_in_average", "is_active")
     list_filter = ("county", ActiveStatusFilter)
 
 

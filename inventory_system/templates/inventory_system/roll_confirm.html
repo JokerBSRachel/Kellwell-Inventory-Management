@@ -3,6 +3,29 @@
 {% block content %}
 <div class="rollover-confirm-page">
   <h1>Roll {{ county }} to the next week?</h1>
+
+  {% if negative_rows %}
+  <p style="font-weight: bold; color: red;">
+    Rollover is blocked: negative usage on {{ negative_rows|length }} item{{ negative_rows|length|pluralize }}.
+    Correct the counts on the inventory sheet and save, then come back.
+  </p>
+  <table border="1" cellpadding="6">
+    <tr>
+      <th>Category</th>
+      <th>Item</th>
+      <th>Usage</th>
+    </tr>
+    {% for row in negative_rows %}
+    <tr>
+      <td>{{ row.category }}</td>
+      <td>{{ row.name }}</td>
+      <td>{{ row.usage|floatformat:2 }} {{ row.unit }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <br>
+  <a class="cancel-button" href="{% url 'weekly_inventory' %}">Back to inventory</a>
+  {% else %}
   <p style=" font-weight: bold;">
     <span style="text-decoration: underline; color: red;">This action is irreversible.</span> Once you roll over, this week's data will be locked
     and a new week will begin. Make sure everything is correct before proceeding.
@@ -13,5 +36,6 @@
     <button class="rollover-button" type="submit">Yes, roll to next week</button>
   </form>
   <a class="cancel-button" href="{% url 'weekly_inventory' %}">Cancel</a>
+  {% endif %}
 </div>
 {% endblock %}

@@ -138,6 +138,11 @@
         <td>{{ row.row_total }}</td>
     </tr>
     {% endfor %}
+    <tr class="average-meals">
+        <td class="meal-average"colspan="2" style="text-align: right;"><strong>DAILY AVERAGE</strong></td>
+        <td class="meal-average" colspan="{{ average_count|floatformat:0 }}"><strong>{{ meal_average }}</strong></td>
+        <td colspan="{{ nonaverage_count|add:1|floatformat:0 }}"></td>
+    </tr>
     <tr>
         <td colspan="2" style="text-align: right; background-color: lightblue;"><strong>TOTALS</strong></td>
         {% for entry in meal_totals_display %}
@@ -145,6 +150,7 @@
         {% endfor %}
         <td style="background-color: lightblue;"><strong>{{ grand_total_meals }}</strong></td>
     </tr>
+    
 </tbody>
 </table>
 

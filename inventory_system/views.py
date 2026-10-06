@@ -12,9 +12,27 @@ from .access import get_user_access, resolve_county, resolve_week, is_week_edita
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, \
                     WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll, \
                     CountyRecipe, RecipeCode
-from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal
+from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal, negative_usage_rows
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
+
+
+def parse_unit_choice(raw, current_unit_id=None):
+    """Looks up a unit picked from the dropdown. Returns (unit, is_valid).
+    A blank choice means "no unit" and is valid. Only active units are
+    accepted, except an item may keep a unit that has since been deactivated
+    (current_unit_id), so saving the sheet doesn't silently strip it."""
+    raw = (raw or "").strip()
+    if raw == "":
+        return None, True
+    if not raw.isdigit():
+        return None, False
+    unit = Unit.objects.filter(pk=int(raw)).first()
+    if unit is None:
+        return None, False
+    if not unit.is_active and unit.pk != current_unit_id:
+        return None, False
+    return unit, True
 
 
 def save_sheet_fields(request, week, category, access):
@@ -93,13 +111,13 @@ def save_sheet_fields(request, week, category, access):
             if new_display_name != inv.county_item.display_name:
                 inv.county_item.display_name = new_display_name
 
-            new_unit_name = request.POST.get(f"item_unit_{inv.pk}", "").strip()
-            if new_unit_name:
-                new_unit = Unit.get_or_create_matching(new_unit_name)
-                if new_unit != inv.county_item.unit:
+            raw_unit = request.POST.get(f"item_unit_{inv.pk}")
+            if raw_unit is not None:
+                new_unit, unit_ok = parse_unit_choice(raw_unit, inv.county_item.unit_id)
+                if unit_ok:
                     inv.county_item.unit = new_unit
-            else:
-                inv.county_item.unit = None
+                else:
+                    messages.error(request, f"Invalid unit for {inv.county_item.display}. Unit left unchanged.")
 
             inv.county_item.save()
 
@@ -123,7 +141,7 @@ def save_sheet_fields(request, week, category, access):
                 # Brand-new item: there's no previous-week row to update, so
                 # create one from the entered Beginning values — same as the
                 # true first-week bootstrap flow does.
-                Inventory.objects.create(
+                prev = Inventory.objects.create(
                     county_item=inv.county_item,
                     week=previous_week,
                     end_price=parse_begin("begin_price", Decimal("0.00")),
@@ -137,6 +155,16 @@ def save_sheet_fields(request, week, category, access):
                 prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
                 prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
                 prev.save()
+
+        if prev is not None:
+            usage = (prev.end_inventory + inv.end_received_1 + inv.end_received_2) - inv.end_inventory
+            if usage < 0:
+                unit_name = inv.county_item.unit.unit_name if inv.county_item.unit else ""
+                usage_text = f"{usage:.2f} {unit_name}".strip()
+                messages.warning(
+                    request,
+                    f"WARNING: {inv.county_item.display} has negative usage. This must be fixed before rollover."
+                )
 
 
 @login_required
@@ -238,7 +266,8 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "inventory_id": row.pk,
             "county_item_id": row.county_item_id,
             "item_name": row.county_item.display, 
-            "unit": row.county_item.unit.unit_name if row.county_item.unit else "",         
+            "unit": row.county_item.unit.unit_name if row.county_item.unit else "",   
+            "unit_id": row.county_item.unit_id,      
             "allow_beginning_edit": row_allow_beginning_edit,
             "allow_name_edit": row_allow_name_edit,
             "beginning_price": prev.end_price if prev else None,
@@ -254,6 +283,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
             "ending_total": str(round_cents(ending_total_exact)),
             "ending_total_tenthousandths": int(ending_total_exact * 10000),
             "total_usage": f"{total_usage:.2f}" if total_usage is not None else "0.00",
+            "total_usage_float": total_usage if total_usage is not None else 0.0,
             "deep_dive": row.deep_dive,
         })
     # If this is the LAST active subcategory under its FoodCode (e.g. 101-6 when a
@@ -276,7 +306,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
         parent_beginning_excl_current = parent_beginning_total - page_beginning_total
         parent_ending_excl_current = parent_ending_total - page_ending_total
 
-    unit_options = Unit.objects.filter(is_active=True)
+    unit_options = Unit.objects.all()
     item_options = Item.objects.filter(is_active=True)
 
     week_end_date = week.end_date.strftime("%m/%d/%y")
@@ -380,14 +410,22 @@ def add_item(request):
     save_sheet_fields(request, week, category, access)
 
     item_name = request.POST.get("item_name", "").strip()
-    unit_name = request.POST.get("item_unit", "").strip()
+
+    def back_to_sheet():
+        if week.status == 0:
+            return redirect("weekly_inventory_category", category_id=category.pk)
+        return redirect("weekly_inventory_week", week_id=week.pk, category_id=category.pk)
 
     if not item_name:
         messages.error(request, "Item name is required.")
-        return redirect("weekly_inventory_category", category_id=category.pk)
+        return back_to_sheet()
+
+    unit, unit_ok = parse_unit_choice(request.POST.get("item_unit"))
+    if not unit_ok:
+        messages.error(request, "Please choose a unit from the list.")
+        return back_to_sheet()
 
     item = Item.get_or_create_matching(item_name)
-    unit = Unit.get_or_create_matching(unit_name) if unit_name else None
 
     county_item = CountyItem.objects.filter(item=item, category=category, unit=unit).first()
     max_order = CountyItem.objects.filter(category=category).order_by("-sort_order").values_list("sort_order", flat=True).first() or 0
@@ -548,7 +586,12 @@ def roll_to_next_week(request):
             messages.error(request, str(e))
         return redirect("weekly_inventory")
 
-    return render(request, "inventory_system/roll_confirm.html", {"county": county})
+    open_week = current_open_week(county)
+    negative_rows = negative_usage_rows(county, open_week) if open_week else []
+    return render(request, "inventory_system/roll_confirm.html", {
+        "county": county,
+        "negative_rows": negative_rows,
+    })
 
 
 @login_required
@@ -559,7 +602,7 @@ def daily_sales(request, week_id=None):
     is_editable = is_week_editable(week, access)
 
     county_meals = list(
-        CountyMeal.objects.filter(county=county, is_active=True).select_related("meal").order_by("pk")
+        CountyMeal.objects.filter(county=county, is_active=True).select_related("meal").order_by("order")
     )
     dates = [week.end_date - timedelta(days=6 - i) for i in range(7)]
 
@@ -604,6 +647,8 @@ def daily_sales(request, week_id=None):
     sales_by_date_meal = {(s.sale_date, s.county_meal_id): s for s in sales}
 
     meal_totals = [0] * len(county_meals)
+    average_total = 0
+    average_count = 0
     grid_rows = []
     grand_total = 0
 
@@ -616,13 +661,23 @@ def daily_sales(request, week_id=None):
             row_cells.append({"daily_sale_id": sale.pk if sale else None, "count": count})
             row_total += count
             meal_totals[idx] += count
+            if cm.used_in_average:
+                average_total += count
+                average_count += 1
         grand_total += row_total
         grid_rows.append({"date": sale_date, "cells": row_cells, "row_total": row_total})
 
     meal_totals_display = [
-        {"meal_name": cm.meal.meal_name, "total": total}
+        {"meal_name": cm.meal.meal_name, "total": total, "used_in_average": cm.used_in_average}
         for cm, total in zip(county_meals, meal_totals)
     ]
+
+    
+    meal_average = 0
+    if average_count > 0:
+        meal_average = round(average_total / average_count)
+    average_count = average_count / 7
+    nonaverage_count = len([cm for cm in county_meals if not cm.used_in_average])
 
     signoff = WeeklySignoff.objects.filter(week=week).select_related("manager").first()
     can_sign = hasattr(request.user, "manager_profile")
@@ -637,6 +692,9 @@ def daily_sales(request, week_id=None):
         "is_editable": is_editable,
         "signoff": signoff,
         "can_sign": can_sign,
+        "meal_average": meal_average,
+        "average_count": average_count,
+        "nonaverage_count": nonaverage_count,
         "active_report_tab": "daily_sales",
     })
 
@@ -1152,6 +1210,8 @@ def wor(request, week_id=None):
     meal_totals = [0] * len(county_meals)
     daily_rows = []
     grand_total_meals = 0
+    average_total = 0
+    average_count = 0
     for sale_date in dates:
         cells = []
         row_total = 0
@@ -1161,12 +1221,22 @@ def wor(request, week_id=None):
             cells.append(count)
             row_total += count
             meal_totals[idx] += count
+            if cm.used_in_average:
+                average_total += count
+                average_count += 1
         grand_total_meals += row_total
         daily_rows.append({"date": sale_date, "cells": cells, "row_total": row_total})
 
     meal_totals_display = [
         {"meal_name": cm.meal.meal_name, "total": total} for cm, total in zip(county_meals, meal_totals)
     ]
+
+    
+    meal_average = 0
+    if average_count > 0:
+        meal_average = round(average_total / average_count)
+    average_count = average_count / 7
+    nonaverage_count = len([cm for cm in county_meals if not cm.used_in_average])
 
     # --- Cents per category / Food Cost for the Week / Weeks of Food on Hand ---
     def safe_div(numerator, denominator):
@@ -1243,6 +1313,9 @@ def wor(request, week_id=None):
         "daily_rows": daily_rows,
         "meal_totals_display": meal_totals_display,
         "grand_total_meals": grand_total_meals,
+        "meal_average": meal_average,
+        "average_count": average_count,
+        "nonaverage_count": nonaverage_count,
         "payroll_rows": payroll_rows,
         "total_regular_hours": str(total_regular_hours),
         "total_overtime_hours": str(total_overtime_hours),

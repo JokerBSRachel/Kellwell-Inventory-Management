@@ -27,11 +27,6 @@
             <option value="{{ opt.item_name }}">
         {% endfor %}
     </datalist>
-    <datalist id="unit-options">
-        {% for opt in unit_options %}
-            <option value="{{ opt.unit_name }}">
-        {% endfor %}
-    </datalist>
 
     <form method="post">
         {% csrf_token %}
@@ -78,7 +73,7 @@
                 <td class="drag-handle" style="cursor: grab;">☰</td>
                 <td>
                     <div class="item-name-cell">
-                    {% if is_editable %}
+                    {% if is_editable and row.beginning_total == "0.00" and row.ending_total == "0.00" %}
                         <button class="delete"
                                 type="submit"
                                 style="display: inline;"
@@ -96,8 +91,14 @@
                 </td>
                 <td>
                     {% if row.allow_name_edit %}
-                    <input type="text" list="unit-options" name="item_unit_{{ row.inventory_id }}" value="{{ row.unit }}"  class="unit-input">
-                    {% else %}
+                    <select name="item_unit_{{ row.inventory_id }}" class="unit-input">
+                        <option value=""></option>
+                        {% for opt in unit_options %}
+                        {% if opt.is_active or opt.pk == row.unit_id %}
+                        <option value="{{ opt.pk }}"{% if opt.pk == row.unit_id %} selected{% endif %}>{{ opt.unit_name }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>                    {% else %}
                     <span class="unit-text">{{ row.unit }}</span>
                     {% endif %}
                 </td>
@@ -132,7 +133,7 @@
                     {{ row.beginning_inventory|default_if_none:"0.00" }}
                     {% endif %}
                 </td>
-                <td class="beginning-total" style="{% if row.beginning_total == "0.00" %}background-color: lightcoral;{% endif %}">
+                <td class="beginning-total" style="{% if row.beginning_total == "0.00" %}background-color: lightcoral; font-weight: 700;{% endif %}">
                     ${{ row.beginning_total|default_if_none:"0.00" }}
                 </td>
                 <td>
@@ -167,10 +168,10 @@
                     {{ row.ending_inventory }}
                     {% endif %}
                 </td>
-                <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: lightcoral;{% endif %}">
+                <td class="ending-total" style="{% if row.ending_total == "0.00" %}background-color: lightcoral; font-weight: 700;{% endif %}">
                     ${{ row.ending_total }}
                 </td>
-                <td class="total-usage">
+                <td class="total-usage" style="{% if row.total_usage_float < 0 %}background-color: yellow; font-weight: 700;{% endif %}">
                     {{ row.total_usage|default_if_none:"0.00"}}
                 </td>
                 <td class="deep-dive">
@@ -204,7 +205,14 @@
                 <input type="text" name="item_name" list="item-options" placeholder="New item name" formaction="{% url 'add_item' %}">
                 </td>
                 <td>
-                <input type="text" name="item_unit" list="unit-options" placeholder="Unit" formaction="{% url 'add_item' %}">
+                    <select name="item_unit">
+                        <option value="">No Unit</option>
+                        {% for opt in unit_options %}
+                        {% if opt.is_active %}
+                        <option value="{{ opt.pk }}">{{ opt.unit_name }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
                 </td>
                 <td>
                 <input type="number" step="0.01" name="starting_price" placeholder="Price" formaction="{% url 'add_item' %}">
@@ -292,8 +300,11 @@
     }
 
     function getUnitText(tr) {
-        const unitInput = tr.querySelector('.unit-input');
-        if (unitInput) return unitInput.value;
+        const unitSelect = tr.querySelector('.unit-input');
+        if (unitSelect) {
+            const selected = unitSelect.selectedOptions[0];
+            return selected ? selected.textContent.trim() : '';
+        }
         const unitSpan = tr.querySelector('.unit-text');
         return unitSpan ? unitSpan.textContent : '';
     }
@@ -323,12 +334,14 @@
             const beginningCents = roundTenThousandthsToCents(tenThousandthsProduct(parseNum(beginPrice), parseNum(beginInventory)));
             beginningTotalCell.textContent = formatCents(beginningCents);
             beginningTotalCell.style.backgroundColor = beginningCents === 0 ? 'lightcoral' : '';
+            beginningTotalCell.style.fontWeight = beginningCents === 0 ? '700' : '';
         }
     
         if (price && inventory && endingTotalCell) {
             const endingCents = roundTenThousandthsToCents(tenThousandthsProduct(parseNum(price), parseNum(inventory)));
             endingTotalCell.textContent = formatCents(endingCents);
             endingTotalCell.style.backgroundColor = endingCents === 0 ? 'lightcoral' : '';
+            endingTotalCell.style.fontWeight = endingCents === 0 ? '700' : '';
         }
     
         if (inventory && usageCell) {
@@ -337,7 +350,8 @@
             const r2 = received2 ? parseNum(received2) : 0;
             const usage = (beginVal + r1 + r2) - parseNum(inventory);
             usageCell.textContent = usage.toFixed(2) + ' ' + getUnitText(tr);
-            {% comment %} usageCell.style.backgroundColor = usage === 0 ? 'red' : ''; {% endcomment %}
+            usageCell.style.backgroundColor = usage < 0 ? 'yellow' : '';
+            usageCell.style.fontWeight = usage < 0 ? '700' : '';
         }
 
         recalcPageTotals();
@@ -388,7 +402,7 @@
             input.closest('td').classList.toggle('unfilled-cell', filled);
         }
     
-        tr.querySelectorAll('input').forEach(function (input) {
+        tr.querySelectorAll('input, select').forEach(function (input) {
             input.addEventListener('focus', function () {
                 tr.classList.add('active-row');
             });

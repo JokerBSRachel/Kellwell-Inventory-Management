@@ -378,13 +378,15 @@ class Meal(models.Model):
 class CountyMeal(models.Model):
     county = models.ForeignKey(County, on_delete=models.PROTECT)
     meal = models.ForeignKey(Meal, on_delete=models.PROTECT)
+    order = models.PositiveSmallIntegerField(default=0)
+    used_in_average = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["county", "meal"], condition=models.Q(is_active=True), name="unique_county_meal")
         ]
-        ordering = ["-is_active", "county__county_name", "county__state__state_abbreviation", "meal__meal_name"]
+        ordering = ["-is_active", "county__county_name", "county__state__state_abbreviation", "order","meal__meal_name"]
 
     def __str__(self):
         return str(self.county) + " - " + str(self.meal)

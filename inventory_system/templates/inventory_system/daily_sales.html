@@ -43,13 +43,19 @@
         </tr>
         {% endfor %}
         </tbody>
+        <tr class="average-meals">
+            <td class="meal-average"colspan="2" style="text-align: right;"><strong>DAILY AVERAGE</strong></td>
+            <td class="meal-average" id="average-total" colspan="{{ average_count|floatformat:0 }}"><strong>{{ meal_average }}</strong></td>
+            <td colspan="{{ nonaverage_count|add:1|floatformat:0 }}"></td>
+        </tr>
         <tr>
             <td colspan="2" style="text-align: right;"><strong>TOTALS</strong></td>
             {% for entry in meal_totals_display %}
-            <td class="meal-total">{{ entry.total }}</td>
+            <td class="meal-total{% if entry.used_in_average %} used_in_average{% endif %}">{{ entry.total }}</td>
             {% endfor %}
             <td id="grand-total"><strong>{{ grand_total }}</strong></td>
         </tr>
+        
     </table>
 
     {% if is_editable %}
@@ -81,6 +87,17 @@
             cell.textContent = mealTotals[idx];
         });
         document.getElementById('grand-total').innerHTML = '<strong>' + grand + '</strong>';
+        let average_total = 0;
+        let average_count = 0;
+        document.querySelectorAll('.used_in_average').forEach(function (cell) {
+            average_total += parseInt(cell.textContent) || 0;
+            average_count += 7;
+        })
+        if (average_count > 0) {
+            document.getElementById('average-total').innerHTML = '<strong>' + Math.round(average_total / average_count) + '</strong>';
+        } else {
+            document.getElementById('average-total').innerHTML = '<strong>0</strong>';
+        }
     }
 
     document.querySelectorAll('.sale-input').forEach(function (input) {
