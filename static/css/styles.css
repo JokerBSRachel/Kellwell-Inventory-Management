@@ -433,7 +433,7 @@ td .item-name-cell> :last-child {
     min-width: 0;
 }
 
-.active-row {
+.active-row, tr:has(.deep-dive-btn:hover) {
     outline: 2px solid #555;
     outline-offset: -1px;
     background-color: lightgray;

@@ -494,6 +494,23 @@ def undo_last_action(request):
             )
         messages.success(request, "Item restored.")
 
+    elif action["type"] == "delete_payroll":
+        employee = get_object_or_404(Employee, pk=action["employee_id"])
+        employee.is_active = True
+        employee.save()
+
+        for snap in action["deleted_payroll"]:
+            WeeklyPayroll.objects.get_or_create(
+                employee=employee,
+                week_id=snap["week_id"],
+                defaults={
+                    "regular_hours": Decimal(snap["regular_hours"]),
+                    "overtime_hours": Decimal(snap["overtime_hours"]),
+                    "overtime_explanation": snap["overtime_explanation"],
+                },
+            )
+        messages.success(request, f"{employee.employee_name} restored to payroll.")
+
     return redirect(request.META.get("HTTP_REFERER", "dashboard"))
 
 
@@ -949,13 +966,138 @@ def delete_invoice(request, invoice_id):
         return redirect("invoices_recap_week", week_id=week.pk)
 
 
+def can_edit_payroll(week, access):
+    """Payroll is manager-only, on top of the normal week-editability rules."""
+    return access.role in ("manager", "developer") and is_week_editable(week, access)
+
+
+def redirect_to_wor(week):
+    if week.status == 0:
+        return redirect("wor")
+    return redirect("wor_week", week_id=week.pk)
+
+
+def current_open_week(county):
+    return Week.objects.filter(county=county, status=0, is_initial=False).order_by("-end_date").first()
+
+
+def parse_hours(raw):
+    raw = (raw or "").strip()
+    if raw == "":
+        return Decimal("0.00")
+    try:
+        value = Decimal(raw)
+        return value if value >= 0 else Decimal("0.00")
+    except InvalidOperation:
+        return Decimal("0.00")
+
+
+def save_payroll_fields(request, week, access):
+    """Saves every payroll row posted from the WOR form. Shared by the WOR view
+    and the add/remove endpoints so unsaved edits aren't lost when a manager
+    clicks Add or X before Save (same pattern as save_sheet_fields)."""
+    if not can_edit_payroll(week, access):
+        return
+
+    for payroll in WeeklyPayroll.objects.filter(week=week):
+        # Only touch rows that were actually on the submitted page.
+        if f"regular_hours_{payroll.pk}" not in request.POST:
+            continue
+        payroll.regular_hours = parse_hours(request.POST.get(f"regular_hours_{payroll.pk}"))
+        payroll.overtime_hours = parse_hours(request.POST.get(f"overtime_hours_{payroll.pk}"))
+        payroll.overtime_explanation = request.POST.get(f"overtime_explanation_{payroll.pk}", "").strip()
+        payroll.save()
+
+
+@login_required
+@require_POST
+def add_payroll_row(request):
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    week = resolve_week(county, request.POST.get("week_id"))
+    if not can_edit_payroll(week, access):
+        raise PermissionDenied("Payroll can only be edited by a manager, and only while the week is editable.")
+
+    save_payroll_fields(request, week, access)
+
+    employee_name = request.POST.get("employee_name", "").strip()
+    if not employee_name:
+        messages.error(request, "Employee name is required.")
+        return redirect_to_wor(week)
+
+    employee = Employee.get_or_create_matching(county, employee_name)
+    WeeklyPayroll.objects.get_or_create(employee=employee, week=week)
+
+    # Adding to the previous (admin-editable) week also adds them to the
+    # current week, mirroring add_item on the inventory sheet.
+    if week.status == 1:
+        current_week = current_open_week(county)
+        if current_week:
+            WeeklyPayroll.objects.get_or_create(employee=employee, week=current_week)
+
+    return redirect_to_wor(week)
+
+
+@login_required
+@require_POST
+def delete_payroll_row(request, payroll_id):
+    access = get_user_access(request.user)
+    county = resolve_county(request)
+    payroll = get_object_or_404(
+        WeeklyPayroll.objects.select_related("employee", "week"), pk=payroll_id, week__county=county
+    )
+    week = payroll.week
+    if not can_edit_payroll(week, access):
+        raise PermissionDenied("Payroll can only be edited by a manager, and only while the week is editable.")
+
+    save_payroll_fields(request, week, access)
+    # save_payroll_fields saved this row through a *different* Python object,
+    # so ours still holds the pre-save hours. Reload before snapshotting,
+    # or Undo would restore stale values.
+    payroll.refresh_from_db()
+
+    def snapshot(row):
+        return {
+            "week_id": row.week_id,
+            "regular_hours": str(row.regular_hours),
+            "overtime_hours": str(row.overtime_hours),
+            "overtime_explanation": row.overtime_explanation,
+        }
+
+    employee = payroll.employee
+    employee.is_active = False
+    employee.save()
+
+    deleted_snapshots = [snapshot(payroll)]
+    payroll.delete()
+
+    # Removing from the previous week also removes them from the current week.
+    # Earlier weeks keep their rows, so historical reports stay intact.
+    if week.status == 1:
+        current_week = current_open_week(county)
+        if current_week:
+            current_payroll = WeeklyPayroll.objects.filter(employee=employee, week=current_week).first()
+            if current_payroll:
+                deleted_snapshots.append(snapshot(current_payroll))
+                current_payroll.delete()
+
+    messages.success(request, f"{employee.employee_name} removed from payroll.", extra_tags="undoable")
+    request.session["last_action"] = {
+        "type": "delete_payroll",
+        "employee_id": employee.pk,
+        "deleted_payroll": deleted_snapshots,
+    }
+
+    return redirect_to_wor(week)
+
+
 @login_required
 def wor(request, week_id=None):
     access = get_user_access(request.user)
     county = resolve_county(request)
     week = resolve_week(county, week_id)
 
-    payroll_editable = access.role in ("manager", "developer") and is_week_editable(week, access)
+    payroll_editable = can_edit_payroll(week, access)
 
     # --- Cost summary (same formulas as Weekly Invoices Recap's bottom section) ---
     previous_week = Week.objects.filter(
@@ -1042,51 +1184,28 @@ def wor(request, week_id=None):
     weeks_of_food_on_hand = round_to(safe_div(ending_food_total, cost_for_week_food), 2)
 
     # --- Weekly Payroll (manager-editable only) ---
-    employees = list(Employee.objects.filter(county=county, is_active=True))
-    payroll_by_employee = {}
-    for employee in employees:
-        payroll, _ = WeeklyPayroll.objects.get_or_create(
-            employee=employee, week=week,
-            defaults={"regular_hours": Decimal("0.00"), "overtime_hours": Decimal("0.00")},
-        )
-        payroll_by_employee[employee.pk] = payroll
+    if week.status in (0, 1) and not WeeklyPayroll.objects.filter(week=week).exists():
+        for employee in Employee.objects.filter(county=county, is_active=True):
+            WeeklyPayroll.objects.get_or_create(employee=employee, week=week)
 
     if request.method == "POST":
         if not payroll_editable:
             raise PermissionDenied("Payroll can only be edited by a manager, and only while the week is editable.")
 
-        def parse_hours(field_name):
-            raw = request.POST.get(field_name, "").strip()
-            if raw == "":
-                return Decimal("0.00")
-            try:
-                value = Decimal(raw)
-                return value if value >= 0 else Decimal("0.00")
-            except InvalidOperation:
-                return Decimal("0.00")
+        save_payroll_fields(request, week, access)
+        return redirect_to_wor(week)
 
-        for employee in employees:
-            payroll = payroll_by_employee[employee.pk]
-            payroll.regular_hours = parse_hours(f"regular_hours_{payroll.pk}")
-            payroll.overtime_hours = parse_hours(f"overtime_hours_{payroll.pk}")
-            payroll.overtime_explanation = request.POST.get(f"overtime_explanation_{payroll.pk}", "").strip()
-            payroll.save()
-
-        if week.status == 0:
-            return redirect("wor")
-        else:
-            return redirect("wor_week", week_id=week.pk)
+    payrolls = WeeklyPayroll.objects.filter(week=week).select_related("employee").order_by("employee__employee_name")
 
     payroll_rows = []
     total_regular_hours = Decimal("0.00")
     total_overtime_hours = Decimal("0.00")
-    for employee in employees:
-        payroll = payroll_by_employee[employee.pk]
+    for payroll in payrolls:
         total_regular_hours += payroll.regular_hours
         total_overtime_hours += payroll.overtime_hours
         payroll_rows.append({
             "payroll_id": payroll.pk,
-            "employee_name": employee.employee_name,
+            "employee_name": payroll.employee.employee_name,
             "regular_hours": payroll.regular_hours,
             "overtime_hours": payroll.overtime_hours,
             "total_hours": payroll.regular_hours + payroll.overtime_hours,
@@ -1129,6 +1248,7 @@ def wor(request, week_id=None):
         "total_overtime_hours": str(total_overtime_hours),
         "total_hours_all": str(total_hours_all),
         "payroll_editable": payroll_editable,
+        "employee_options": Employee.objects.filter(county=county, is_active=False).order_by("employee_name"),
         "signoff": signoff,
         "can_sign": can_sign,
         "active_report_tab": "wor",

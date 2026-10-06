@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum, F
-from .models import Week, CountyItem, Inventory, CountyMeal, DailySale
+from .models import Week, CountyItem, Inventory, CountyMeal, DailySale, Employee, WeeklyPayroll
 
 
 def round_to(value, decimal_places):
@@ -125,5 +125,10 @@ def rollover_county_week(county):
                 sale_date=sale_date,
                 sale_count=0,
             )
+
+    # Carry the active roster forward. From here on, the week's WeeklyPayroll
+    # rows (not the Employee table) decide who appears on the WOR payroll report.
+    for employee in Employee.objects.filter(county=county, is_active=True):
+        WeeklyPayroll.objects.create(employee=employee, week=new_week)
 
     return new_week

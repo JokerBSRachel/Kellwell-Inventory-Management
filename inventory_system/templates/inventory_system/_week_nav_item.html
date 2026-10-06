@@ -18,9 +18,9 @@
     <li>
         <div class="tooltip-container">
             {% if w.status == 0 %}
-            <a href="{% url 'weekly_inventory_category' cat.pk %}"{% if cat.pk == nav_viewed_category_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+            <a href="{% url 'weekly_inventory_category' cat.pk %}"{% if cat.pk == nav_viewed_category_id and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
             {% else %}
-            <a href="{% url 'weekly_inventory_week' w.pk cat.pk %}"{% if cat.pk == nav_viewed_category_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
+            <a href="{% url 'weekly_inventory_week' w.pk cat.pk %}"{% if cat.pk == nav_viewed_category_id and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>{{ cat.code.code_number }}-{{ cat.subcategory_id }}</a>
             {% endif %}
             <span class="tooltip-box">{{ cat.code.code_number }}: {{ cat.code.code_name }}</span>
         </div>

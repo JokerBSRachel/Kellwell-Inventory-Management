@@ -100,6 +100,20 @@ class Employee(models.Model):
     def __str__(self):
         return self.employee_name
 
+    @classmethod
+    def get_or_create_matching(cls, county, name):
+        """Same case/whitespace-insensitive matching as Item/Unit/Vendor, but
+        scoped to one county (two counties can each have a 'Maria Lopez').
+        Reactivates a matching deactivated employee instead of duplicating them."""
+        target = _normalize_name(name)
+        for employee in cls.objects.filter(county=county):
+            if _normalize_name(employee.employee_name) == target:
+                if not employee.is_active:
+                    employee.is_active = True
+                    employee.save()
+                return employee
+        return cls.objects.create(county=county, employee_name=name.strip(), is_active=True)
+
 
 class Week(models.Model):
     status_options = {

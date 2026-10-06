@@ -1,5 +1,10 @@
 from django.contrib import admin
 from django import forms
+from django.db.models import Max
+
+from import_export import resources, fields
+from import_export.admin import ImportExportModelAdmin
+from import_export.widgets import ForeignKeyWidget
 
 from inventory_system.services import ensure_initial_weeks
 from .models import (
@@ -442,6 +447,9 @@ class RecipeIngredientInline(admin.TabularInline):
     model = RecipeIngredient
     extra = 1
 
+    class Media:
+        js = ("js/admin_ingredient_sort.js",)
+
 
 @admin.register(RecipeCode)
 class RecipeCodeAdmin(admin.ModelAdmin):
@@ -456,9 +464,37 @@ class RecipeAdmin(admin.ModelAdmin):
     search_fields = ("recipe_name",)
     inlines = [RecipeIngredientInline]
 
+    def get_formset_kwargs(self, request, obj, inline, prefix):
+        kwargs = super().get_formset_kwargs(request, obj, inline, prefix)
+        if isinstance(inline, RecipeIngredientInline):
+            # Highest existing sort_order (0 for a new recipe, so the first row gets 10).
+            start = 0
+            if obj and obj.pk:
+                start = obj.ingredients.aggregate(m=Max("sort_order"))["m"] or 0
+            # For inline formsets, "initial" only applies to the blank extra rows.
+            kwargs["initial"] = [
+                {"sort_order": start + 10 * (i + 1)}
+                for i in range(inline.get_extra(request, obj))
+            ]
+        return kwargs
+
+
+class RecipeIngredientResource(resources.ModelResource):
+    recipe = fields.Field(
+        column_name="recipe",
+        attribute="recipe",
+        widget=ForeignKeyWidget(Recipe, field="recipe_name"),
+    )
+
+    class Meta:
+        model = RecipeIngredient
+        fields = ("recipe", "ingredient_name", "ingredient_amt", "ingredient_unit", "is_label", "sort_order")
+        import_id_fields = ("recipe", "ingredient_name")
+
 
 @admin.register(RecipeIngredient)
-class RecipeIngredientAdmin(admin.ModelAdmin):
+class RecipeIngredientAdmin(ImportExportModelAdmin):  
+    resource_classes = [RecipeIngredientResource]
     list_display = ("ingredient_name", "recipe", "ingredient_amt", "ingredient_unit")
     list_filter = ("recipe__recipe_code",)
     search_fields = ("ingredient_name",)
