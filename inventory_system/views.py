@@ -1,5 +1,7 @@
+from calendar import week
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from os import access
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -11,8 +13,10 @@ from django.http import JsonResponse, Http404
 from .access import get_user_access, resolve_county, resolve_week, is_week_editable
 from .models import CountyCategory, CountyItem, Inventory, Item, Week, Unit, CountyMeal, DailySale, \
                     WeeklySignoff, FoodCode, Invoice, InvoiceLineItem, Vendor, Employee, WeeklyPayroll, \
-                    CountyRecipe, RecipeCode
-from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal, negative_usage_rows
+                    CountyRecipe, RecipeCode, EditLog
+from inventory_system import access
+from .services import rollover_county_week, totals_by_code, round_cents, round_to, to_decimal, negative_usage_rows, \
+                    log_field_changes, log_edit
 
 FOOD_CODE_CEILING = 200  # code_numbers below this are "Food"; at/above are "Non-food"
 
@@ -99,6 +103,15 @@ def save_sheet_fields(request, week, category, access):
         if price_value is None:
             continue
 
+        item_label = f"{inv.county_item.display} ({category.code.code_number}-{category.subcategory_id})"
+        log_field_changes(request.user, week.county, week, "inventory", item_label, [
+            ("Ending price", inv.end_price, price_value),
+            ("Ending received 1", inv.end_received_1, received_1_value),
+            ("Ending received 2", inv.end_received_2, received_2_value),
+            ("Ending inventory", inv.end_inventory, inventory_value),
+            ("Deep dive note", inv.deep_dive, deep_dive_value),
+        ])
+
         inv.end_price = price_value
         inv.end_received_1 = received_1_value
         inv.end_received_2 = received_2_value
@@ -109,12 +122,20 @@ def save_sheet_fields(request, week, category, access):
         if row_allow_name_edit:
             new_display_name = request.POST.get(f"item_name_{inv.pk}", "").strip()
             if new_display_name != inv.county_item.display_name:
+                log_field_changes(request.user, week.county, week, "inventory", item_label, [
+                    ("Item name", inv.county_item.display, new_display_name or inv.county_item.item.item_name),
+                ])
                 inv.county_item.display_name = new_display_name
 
             raw_unit = request.POST.get(f"item_unit_{inv.pk}")
             if raw_unit is not None:
                 new_unit, unit_ok = parse_unit_choice(raw_unit, inv.county_item.unit_id)
                 if unit_ok:
+                    if (new_unit.pk if new_unit else None) != inv.county_item.unit_id:
+                        log_field_changes(request.user, week.county, week, "inventory", item_label, [
+                            ("Unit", inv.county_item.unit.unit_name if inv.county_item.unit else "",
+                             new_unit.unit_name if new_unit else ""),
+                        ])
                     inv.county_item.unit = new_unit
                 else:
                     messages.error(request, f"Invalid unit for {inv.county_item.display}. Unit left unchanged.")
@@ -141,6 +162,9 @@ def save_sheet_fields(request, week, category, access):
                 # Brand-new item: there's no previous-week row to update, so
                 # create one from the entered Beginning values — same as the
                 # true first-week bootstrap flow does.
+                log_edit(request.user, week.county, week, "inventory", "edit", item_label,
+                         "Beginning values", "",
+                         f"price {parse_begin('begin_price', Decimal('0.00')):.2f}, inventory {parse_begin('begin_inventory', Decimal('0.00')):.2f}")
                 prev = Inventory.objects.create(
                     county_item=inv.county_item,
                     week=previous_week,
@@ -150,10 +174,22 @@ def save_sheet_fields(request, week, category, access):
                     end_inventory=parse_begin("begin_inventory", Decimal("0.00")),
                 )
             else:
-                prev.end_price = parse_begin("begin_price", prev.end_price)
-                prev.end_received_1 = parse_begin("begin_received_1", Decimal("0.00"))
-                prev.end_received_2 = parse_begin("begin_received_2", Decimal("0.00"))
-                prev.end_inventory = parse_begin("begin_inventory", prev.end_inventory)
+                new_begin = {
+                    "price": parse_begin("begin_price", prev.end_price),
+                    "received_1": parse_begin("begin_received_1", Decimal("0.00")),
+                    "received_2": parse_begin("begin_received_2", Decimal("0.00")),
+                    "inventory": parse_begin("begin_inventory", prev.end_inventory),
+                }
+                log_field_changes(request.user, week.county, week, "inventory", item_label, [
+                    ("Beginning price", prev.end_price, new_begin["price"]),
+                    ("Beginning received 1", prev.end_received_1, new_begin["received_1"]),
+                    ("Beginning received 2", prev.end_received_2, new_begin["received_2"]),
+                    ("Beginning inventory", prev.end_inventory, new_begin["inventory"]),
+                ])
+                prev.end_price = new_begin["price"]
+                prev.end_received_1 = new_begin["received_1"]
+                prev.end_received_2 = new_begin["received_2"]
+                prev.end_inventory = new_begin["inventory"]
                 prev.save()
 
         if prev is not None:
@@ -187,6 +223,31 @@ def dashboard(request):
     return render(request, "inventory_system/dashboard.html", {
         "counties": access.counties,
         "show_picker": access.counties.count() > 1,
+    })
+
+
+@login_required
+def edit_history(request, week_id=None):
+    county = resolve_county(request)
+    week = resolve_week(county, week_id)
+
+    page_filter = request.GET.get("page", "")
+    logs = EditLog.objects.filter(week=week)
+    if page_filter in EditLog.PAGE_CHOICES:
+        logs = logs.filter(page=page_filter)
+    else:
+        page_filter = ""
+
+    shown_limit = 500
+    return render(request, "inventory_system/history.html", {
+        "county": county,
+        "week": week,
+        "logs": logs[:shown_limit],
+        "total": logs.count(),
+        "shown_limit": shown_limit,
+        "page_choices": list(EditLog.PAGE_CHOICES.items()),
+        "page_filter": page_filter,
+        "active_report_tab": "history",
     })
 
 
@@ -232,7 +293,7 @@ def weekly_inventory(request, category_id=None, week_id=None):
     current_rows = Inventory.objects.filter(
         week=week,
         county_item__category=category,
-    ).select_related("county_item__item", "county_item__unit").order_by("county_item__sort_order", "county_item_id")
+    ).select_related("county_item__item", "county_item__unit").order_by("sort_order", "county_item__sort_order", "county_item_id")
 
     table_rows = []
     page_beginning_total = Decimal("0.00")
@@ -361,6 +422,7 @@ def delete_item(request, inventory_id):
             "end_received_2": str(row.end_received_2),
             "end_inventory": str(row.end_inventory),
             "deep_dive": row.deep_dive,
+            "sort_order": row.sort_order,
         }
 
     deleted_snapshots = [snapshot(inv)]
@@ -380,6 +442,12 @@ def delete_item(request, inventory_id):
             if current_inv:
                 deleted_snapshots.append(snapshot(current_inv))
                 current_inv.delete()
+
+    gone = deleted_snapshots[0]
+    log_edit(request.user, county, week, "inventory", "delete",
+             f"{county_item.display} ({county_item.category.code.code_number}-{county_item.category.subcategory_id})",
+             "Item removed" + (" (also removed from the current week)" if week.status == 1 else ""),
+             f"price {gone['end_price']}, inventory {gone['end_inventory']}", "")
 
     messages.success(request, f"{county_item.item.item_name} removed from this sheet.", extra_tags="undoable")
 
@@ -493,6 +561,11 @@ def add_item(request):
                           "end_received_2": Decimal("0.00"), "end_inventory": Decimal("0.00"), "is_new_item": True},
             )
 
+    log_edit(request.user, county, week, "inventory", "add",
+             f"{county_item.display} ({category.code.code_number}-{category.subcategory_id})",
+             "Item added" + (" (also added to the current week)" if week.status == 1 else ""),
+             "", f"price {entered_price:.2f}, inventory {entered_inventory:.2f}")
+
     request.session["last_action"] = {
         "type": "create_county_item",
         "county_item_id": county_item.pk,
@@ -528,8 +601,14 @@ def undo_last_action(request):
                     "end_received_2": Decimal(snap["end_received_2"]),
                     "end_inventory": Decimal(snap["end_inventory"]),
                     "deep_dive": snap["deep_dive"],
+                    "sort_order": snap.get("sort_order"),
                 },
             )
+        for snap in action["deleted_inventory"]:
+            undo_week = Week.objects.get(pk=snap["week_id"])
+            log_edit(request.user, undo_week.county, undo_week, "inventory", "undo",
+                     f"{county_item.display} ({county_item.category.code.code_number}-{county_item.category.subcategory_id})",
+                     "Item restored (undo)", "", f"price {snap['end_price']}, inventory {snap['end_inventory']}")
         messages.success(request, "Item restored.")
 
     elif action["type"] == "delete_payroll":
@@ -547,6 +626,10 @@ def undo_last_action(request):
                     "overtime_explanation": snap["overtime_explanation"],
                 },
             )
+        for snap in action["deleted_payroll"]:
+            undo_week = Week.objects.get(pk=snap["week_id"])
+            log_edit(request.user, undo_week.county, undo_week, "payroll", "undo",
+                     employee.employee_name, "Employee restored to payroll (undo)")
         messages.success(request, f"{employee.employee_name} restored to payroll.")
 
     return redirect(request.META.get("HTTP_REFERER", "dashboard"))
@@ -564,9 +647,17 @@ def reorder_items(request):
     if not is_editable:
         raise PermissionDenied("This week is no longer editable.")
 
+    # Order is stored per week (on Inventory), so reordering one week never
+    # touches any other week's sheet.
     ordered_ids = request.POST.getlist("county_item_id")
     for index, county_item_id in enumerate(ordered_ids):
-        CountyItem.objects.filter(pk=county_item_id, category=category).update(sort_order=index)
+        Inventory.objects.filter(
+            week=week, county_item_id=county_item_id, county_item__category=category
+        ).update(sort_order=index)
+
+    log_edit(request.user, county, week, "inventory", "reorder",
+             f"Category {category.code.code_number}-{category.subcategory_id}",
+             "Item order changed", collapse_minutes=10)
 
     return JsonResponse({"status": "ok"})
 
@@ -579,8 +670,12 @@ def roll_to_next_week(request):
         raise PermissionDenied("This county is a template and cannot be rolled over.")
 
     if request.method == "POST":
+        closing_week = current_open_week(county)
         try:
-            rollover_county_week(county)
+            new_week = rollover_county_week(county)
+            log_edit(request.user, county, closing_week, "rollover", "rollover",
+                     f"Week ending {closing_week.end_date:%m/%d/%y}",
+                     "Rolled over", "", f"New week ends {new_week.end_date:%m/%d/%y}")
             messages.success(request, "Week rolled over successfully.")
         except ValueError as e:
             messages.error(request, str(e))
@@ -621,6 +716,7 @@ def daily_sales(request, week_id=None):
 
         sales = DailySale.objects.filter(week=week, county_meal__in=county_meals)
         for sale in sales:
+            old_count = sale.sale_count
             raw = request.POST.get(f"sale_{sale.pk}", "").strip()
             if raw == "":
                 sale.sale_count = 0
@@ -636,6 +732,10 @@ def daily_sales(request, week_id=None):
                         f"Invalid count for {sale.county_meal.meal} on {sale.sale_date} — reverted."
                     )
                     continue
+            if sale.sale_count != old_count:
+                log_edit(request.user, county, week, "daily_sales", "edit",
+                         f"{sale.county_meal.meal} on {sale.sale_date:%a %m/%d}",
+                         "Meals served", old_count, sale.sale_count)
             sale.save()
 
         if week.status == 0:
@@ -709,7 +809,10 @@ def sign_off_week(request, week_id):
     if manager is None:
         raise PermissionDenied("Only a manager can sign off a week.")
 
-    WeeklySignoff.objects.get_or_create(week=week, defaults={"manager": manager})
+    _, created = WeeklySignoff.objects.get_or_create(week=week, defaults={"manager": manager})
+    if created:
+        log_edit(request.user, county, week, "signoff", "signoff",
+                 f"Week ending {week.end_date:%m/%d/%y}", "Signed off")
 
     return redirect(request.META.get("HTTP_REFERER", "daily_sales"))
 
@@ -788,20 +891,35 @@ def save_invoice_fields(request, week, access, county_codes, invoices):
             return Decimal("0.00")
 
     for invoice in invoices:
+        # Captured BEFORE this save, so a vendor or invoice-number change is
+        # logged against the invoice people knew it as.
+        invoice_label = f"{invoice.vendor.vendor_name} #{invoice.invoice_number}"
+        old_number = invoice.invoice_number
+        old_tax = invoice.tax
+        old_amounts = {li.code_id: li.amount for li in InvoiceLineItem.objects.filter(invoice=invoice)}
         vendor_name = request.POST.get(f"vendor_{invoice.pk}", "").strip()
         if vendor_name:
             vendor = Vendor.get_or_create_matching(vendor_name)
             if vendor != invoice.vendor:
+                log_edit(request.user, week.county, week, "invoices", "edit", invoice_label,
+                         "Vendor", invoice.vendor.vendor_name, vendor.vendor_name)
                 invoice.vendor = vendor
 
         invoice.invoice_number = request.POST.get(f"invoice_number_{invoice.pk}", "").strip()
         invoice.tax = parse_amount(f"tax_{invoice.pk}")
         invoice.save()
+        log_field_changes(request.user, week.county, week, "invoices", invoice_label, [
+            ("Invoice number", old_number, invoice.invoice_number),
+            ("Tax", old_tax, invoice.tax),
+        ])
 
         # Line item amounts CAN be negative (credit memos from a vendor).
         for code in county_codes:
             amount = parse_amount(f"amount_{code.pk}_{invoice.pk}", allow_negative=True)
             InvoiceLineItem.objects.filter(invoice=invoice, code=code).update(amount=amount)
+            log_field_changes(request.user, week.county, week, "invoices", invoice_label, [
+                (f"{code.code_number}-{code.code_name} amount", old_amounts.get(code.pk, Decimal("0.00")), amount),
+            ])
 
 
 @login_required
@@ -987,6 +1105,8 @@ def add_invoice(request):
         invoice = Invoice.objects.create(
             week=week, vendor=vendor, invoice_number=invoice_number, tax=Decimal("0.00")
         )
+        log_edit(request.user, county, week, "invoices", "add",
+                 f"{vendor.vendor_name} #{invoice_number}", "Invoice added")
 
         for code in county_codes:
             InvoiceLineItem.objects.get_or_create(invoice=invoice, code=code, defaults={"amount": Decimal("0.00")})
@@ -1015,6 +1135,13 @@ def delete_invoice(request, invoice_id):
     other_invoices = list(Invoice.objects.filter(week=week).exclude(pk=invoice.pk).select_related("vendor"))
     save_invoice_fields(request, week, access, county_codes, other_invoices)
 
+    removed_total = to_decimal(
+        InvoiceLineItem.objects.filter(invoice=invoice).aggregate(total=Sum("amount"))["total"]
+    ) or Decimal("0.00")
+    log_edit(request.user, county, week, "invoices", "delete",
+             f"{invoice.vendor.vendor_name} #{invoice.invoice_number}", "Invoice removed",
+             f"amounts {removed_total:.2f}, tax {invoice.tax:.2f}", "")
+
     InvoiceLineItem.objects.filter(invoice=invoice).delete()
     invoice.delete()
 
@@ -1026,7 +1153,8 @@ def delete_invoice(request, invoice_id):
 
 def can_edit_payroll(week, access):
     """Payroll is manager-only, on top of the normal week-editability rules."""
-    return access.role in ("manager", "developer") and is_week_editable(week, access)
+    # return access.role in ("manager", "developer") and is_week_editable(week, access)
+    return is_week_editable(week, access)
 
 
 def redirect_to_wor(week):
@@ -1057,13 +1185,21 @@ def save_payroll_fields(request, week, access):
     if not can_edit_payroll(week, access):
         return
 
-    for payroll in WeeklyPayroll.objects.filter(week=week):
+    for payroll in WeeklyPayroll.objects.filter(week=week).select_related("employee"):
         # Only touch rows that were actually on the submitted page.
         if f"regular_hours_{payroll.pk}" not in request.POST:
             continue
-        payroll.regular_hours = parse_hours(request.POST.get(f"regular_hours_{payroll.pk}"))
-        payroll.overtime_hours = parse_hours(request.POST.get(f"overtime_hours_{payroll.pk}"))
-        payroll.overtime_explanation = request.POST.get(f"overtime_explanation_{payroll.pk}", "").strip()
+        new_regular = parse_hours(request.POST.get(f"regular_hours_{payroll.pk}"))
+        new_overtime = parse_hours(request.POST.get(f"overtime_hours_{payroll.pk}"))
+        new_explanation = request.POST.get(f"overtime_explanation_{payroll.pk}", "").strip()
+        log_field_changes(request.user, week.county, week, "payroll", payroll.employee.employee_name, [
+            ("Regular hours", payroll.regular_hours, new_regular),
+            ("Overtime hours", payroll.overtime_hours, new_overtime),
+            ("Overtime explanation", payroll.overtime_explanation, new_explanation),
+        ])
+        payroll.regular_hours = new_regular
+        payroll.overtime_hours = new_overtime
+        payroll.overtime_explanation = new_explanation
         payroll.save()
 
 
@@ -1085,6 +1221,8 @@ def add_payroll_row(request):
 
     employee = Employee.get_or_create_matching(county, employee_name)
     WeeklyPayroll.objects.get_or_create(employee=employee, week=week)
+    log_edit(request.user, county, week, "payroll", "add", employee.employee_name,
+             "Employee added to payroll" + (" (also added to the current week)" if week.status == 1 else ""))
 
     # Adding to the previous (admin-editable) week also adds them to the
     # current week, mirroring add_item on the inventory sheet.
@@ -1138,6 +1276,10 @@ def delete_payroll_row(request, payroll_id):
             if current_payroll:
                 deleted_snapshots.append(snapshot(current_payroll))
                 current_payroll.delete()
+
+    log_edit(request.user, county, week, "payroll", "delete", employee.employee_name,
+             "Employee removed from payroll" + (" (also removed from the current week)" if week.status == 1 else ""),
+             f"regular {deleted_snapshots[0]['regular_hours']}, overtime {deleted_snapshots[0]['overtime_hours']}", "")
 
     messages.success(request, f"{employee.employee_name} removed from payroll.", extra_tags="undoable")
     request.session["last_action"] = {

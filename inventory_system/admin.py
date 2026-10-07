@@ -12,7 +12,7 @@ from .models import (
     WeeklyPayroll, WeeklySignoff, Item, FoodCode,
     CountyCategory, CountyItem, Inventory, Invoice,
     InvoiceLineItem, Meal, CountyMeal, DailySale, Unit, Vendor,
-    RecipeCode, Recipe, RecipeIngredient, CountyRecipe,
+    RecipeCode, Recipe, RecipeIngredient, CountyRecipe, EditLog
 )
 from datetime import date, timedelta
 
@@ -263,7 +263,21 @@ class CountyAdmin(NoDeleteAdmin):
 
         initial_week, first_week = ensure_initial_weeks(new_county)
 
-        for old_item in CountyItem.objects.filter(category__county=template_county).order_by("pk"):
+        # Item order now lives per week on Inventory, so carry over the order
+        # the template's current sheet shows (its latest non-initial week).
+        template_week = Week.objects.filter(
+            county=template_county, is_initial=False
+        ).order_by("-end_date").first()
+        template_order = {}
+        if template_week:
+            template_order = dict(
+                Inventory.objects.filter(week=template_week).values_list("county_item_id", "sort_order")
+            )
+
+        # Active items only: the sheet shows every Inventory row that exists, so
+        # copying an item that was deleted from the template (inactive) would
+        # bring it back on the new county's sheet.
+        for old_item in CountyItem.objects.filter(category__county=template_county, is_active=True).order_by("pk"):
             new_category = category_map.get(old_item.category_id)
             if not new_category:
                 continue
@@ -276,14 +290,17 @@ class CountyAdmin(NoDeleteAdmin):
                 old_initial = Inventory.objects.filter(
                     county_item=old_item, week__is_initial=True
                 ).first()
+                position = template_order.get(old_item.pk)  # None -> appended at the end
                 Inventory.objects.create(
                     county_item=new_item, week=initial_week,
                     end_price=old_initial.end_price if old_initial else 0,
                     end_received_1=0, end_received_2=0, end_inventory=0,
+                    sort_order=position,
                 )
                 Inventory.objects.create(
                     county_item=new_item, week=first_week,
                     end_price=0, end_received_1=0, end_received_2=0, end_inventory=0,
+                    sort_order=position,
                 )
 
 
@@ -513,3 +530,16 @@ class CountyRecipeAdmin(admin.ModelAdmin):
         if db_field.name == "county":
             field.queryset = field.queryset.filter(is_active=True)
         return field
+
+
+@admin.register(EditLog)
+class EditLogAdmin(NoDeleteOnlyAdmin):
+    list_display = ("created_at", "user_label", "county", "week", "page", "action", "description", "field_name", "old_value", "new_value")
+    list_filter = ("county", "page", "action")
+    search_fields = ("description", "user_label")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

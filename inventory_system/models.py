@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Max
 
 import re
 
@@ -324,6 +325,11 @@ class Inventory(models.Model):
     end_received_2 = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
     end_inventory = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal("0.00"))
     deep_dive = models.TextField(blank=True)
+    sort_order = models.IntegerField(null=True, blank=True)
+        # Position of this item on THIS week's sheet. Lives here (not on
+        # CountyItem) so reordering one week never changes any other week.
+        # Rollover copies it forward; new rows with no value go to the end
+        # (see save() below).
     is_new_item = models.BooleanField(default=False) 
 
     class Meta:
@@ -335,6 +341,21 @@ class Inventory(models.Model):
 
     def __str__(self):
         return str(self.week.end_date) + " - " + str(self.county_item)
+
+    def save(self, *args, **kwargs):
+        # A new row with no explicit position goes to the end of its category's
+        # list for that week. Rollover passes an explicit value to carry the
+        # previous week's order forward. Doing this here means every place that
+        # creates Inventory rows (add_item, save_sheet_fields, undo, admin)
+        # gets sensible ordering without being touched individually.
+        if self._state.adding and self.sort_order is None:
+            highest = Inventory.objects.filter(
+                week_id=self.week_id,
+                county_item__category_id=self.county_item.category_id,
+            ).aggregate(highest=Max("sort_order"))["highest"]
+            self.sort_order = 0 if highest is None else highest + 1
+        super().save(*args, **kwargs)
+
 
 class Invoice(models.Model):
     week = models.ForeignKey(Week, on_delete=models.PROTECT)
@@ -534,3 +555,38 @@ class CountyRecipe(models.Model):
         if self.last_servings is None:
             self.last_servings = 100 if self.recipe.serving_unit == Recipe.PORTIONS else 1
         super().save(*args, **kwargs)
+
+
+class EditLog(models.Model):
+    """One line of edit history. Written by services.log_edit(); never edited."""
+    PAGE_CHOICES = {
+        "inventory": "Inventory",
+        "daily_sales": "Daily Sales",
+        "invoices": "Weekly Invoices Recap",
+        "payroll": "WOR Payroll",
+        "signoff": "Sign-off",
+        "rollover": "Rollover",
+    }
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    user_label = models.CharField(max_length=150)
+        # Snapshot of who acted ("Barnwell County, SC login", "Pat Smith (manager)"),
+        # so the log stays readable if an account is renamed or removed. Employees
+        # share one login per county, so for them this names the account, not a person.
+    county = models.ForeignKey(County, on_delete=models.PROTECT)
+    week = models.ForeignKey(Week, on_delete=models.PROTECT, null=True, blank=True)
+    page = models.CharField(max_length=20, choices=PAGE_CHOICES)
+    action = models.CharField(max_length=20)
+        # edit / add / delete / undo / reorder / signoff / rollover
+    description = models.CharField(max_length=255)
+        # What was touched, e.g. "Oatmeal 50# (101-1)"
+    field_name = models.CharField(max_length=60, blank=True)
+    old_value = models.TextField(blank=True)
+    new_value = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return f"{self.created_at:%Y-%m-%d %H:%M} - {self.user_label} - {self.description}"

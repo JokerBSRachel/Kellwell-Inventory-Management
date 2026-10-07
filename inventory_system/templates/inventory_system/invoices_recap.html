@@ -209,6 +209,14 @@
         return isNaN(val) ? 0 : val;
     }
 
+    function money(value) {
+        // Round to cents first so float noise (e.g. -1e-13 on a true zero)
+        // can't display as "-0.00"; "+ 0" turns -0 into 0. Grouping matches
+        // the server's floatformat:"2g" so values keep their commas when edited.
+        const rounded = Math.round(value * 100) / 100 + 0;
+        return '$' + rounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
     function recalcInvoiceRow(tr) {
         let foodTotal = 0;
         tr.querySelectorAll('.food-amount-input').forEach(function (input) { foodTotal += parseAmt(input); });
@@ -219,9 +227,9 @@
 
         const allTotal = foodTotal + nonfoodTotal;
 
-        tr.querySelector('.row-food-total').textContent = '$' + foodTotal.toFixed(2);
-        tr.querySelector('.row-nonfood-total').textContent = '$' + nonfoodTotal.toFixed(2);
-        tr.querySelector('.row-all-total').textContent = '$' + allTotal.toFixed(2);
+        tr.querySelector('.row-food-total').textContent = money(foodTotal);
+        tr.querySelector('.row-nonfood-total').textContent = money(nonfoodTotal);
+        tr.querySelector('.row-all-total').textContent = money(allTotal);
 
         recalcSheetTotals();
     }
@@ -236,7 +244,7 @@
             document.querySelectorAll('.amount-input[data-code-id="' + codeId + '"]').forEach(function (input) {
                 colTotal += parseAmt(input);
             });
-            cell.innerHTML = '<strong>$' + colTotal.toFixed(2) + '</strong>';
+            cell.innerHTML = '<strong>' + money(colTotal) + '</strong>';
 
             if (cell.dataset.isFood === 'true') {
                 grandFoodTotal += colTotal;
@@ -247,56 +255,58 @@
             const sheetAndBeginningCell = document.getElementById('sheet-and-beginning-' + codeId);
             if (sheetAndBeginningCell) {
                 const beginning = parseFloat(sheetAndBeginningCell.dataset.beginning) || 0;
-                sheetAndBeginningCell.textContent = '$' + (colTotal + beginning).toFixed(2);
+                sheetAndBeginningCell.textContent = money(colTotal + beginning);
             }
 
             const costCell = document.getElementById('cost-for-week-' + codeId);
             if (costCell) {
                 const beginning = parseFloat(costCell.dataset.beginning) || 0;
                 const ending = parseFloat(costCell.dataset.ending) || 0;
-                costCell.innerHTML = '<strong>$' + (colTotal + beginning - ending).toFixed(2) + '</strong>';
+                costCell.innerHTML = '<strong>' + money(colTotal + beginning - ending) + '</strong>';
             }
         });
 
         let grandTaxTotal = 0;
         document.querySelectorAll('.tax-input').forEach(function (input) { grandTaxTotal += parseAmt(input); });
 
-        const sabNonfood = sheetNonfoodWithTax + sabNonfoodBeginning;
-        const cfwNonfood = sheetNonfoodWithTax + cfwNonfoodBeginning - cfwNonfoodEnding;
+        // Sheet Total's own Total Non-food/Total all DO include tax.
+        // The two derived rows below (Total of Sheet and Beginning, Cost for
+        // the Week) do NOT — tax has no beginning/ending inventory concept.
+        const sheetNonfoodExclTax = grandNonfoodTotal;
         const sheetNonfoodWithTax = grandNonfoodTotal + grandTaxTotal;
 
-        document.getElementById('sheet-food-total').innerHTML = '<strong>$' + grandFoodTotal.toFixed(2) + '</strong>';
-        document.getElementById('sheet-tax-total').innerHTML = '<strong>$' + grandTaxTotal.toFixed(2) + '</strong>';
-        document.getElementById('sheet-nonfood-total').innerHTML = '<strong>$' + sheetNonfoodWithTax.toFixed(2) + '</strong>';
-        document.getElementById('sheet-all-total').innerHTML = '<strong>$' + (grandFoodTotal + sheetNonfoodWithTax).toFixed(2) + '</strong>';
-        document.getElementById('sheet-and-beginning-tax-total').textContent = '$' + grandTaxTotal.toFixed(2);
-        document.getElementById('cost-for-week-tax-total').innerHTML = '<strong>$' + grandTaxTotal.toFixed(2) + '</strong>';
+        document.getElementById('sheet-food-total').innerHTML = '<strong>' + money(grandFoodTotal) + '</strong>';
+        document.getElementById('sheet-tax-total').innerHTML = '<strong>' + money(grandTaxTotal) + '</strong>';
+        document.getElementById('sheet-nonfood-total').innerHTML = '<strong>' + money(sheetNonfoodWithTax) + '</strong>';
+        document.getElementById('sheet-all-total').innerHTML = '<strong>' + money(grandFoodTotal + sheetNonfoodWithTax) + '</strong>';
+        document.getElementById('sheet-and-beginning-tax-total').textContent = money(grandTaxTotal);
+        document.getElementById('cost-for-week-tax-total').innerHTML = '<strong>' + money(grandTaxTotal) + '</strong>';
 
         const sabFoodCell = document.getElementById('sheet-and-beginning-food-total');
         const sabFoodBeginning = parseFloat(sabFoodCell.dataset.beginning) || 0;
         const sabFood = grandFoodTotal + sabFoodBeginning;
-        sabFoodCell.textContent = '$' + sabFood.toFixed(2);
+        sabFoodCell.textContent = money(sabFood);
 
         const sabNonfoodCell = document.getElementById('sheet-and-beginning-nonfood-total');
         const sabNonfoodBeginning = parseFloat(sabNonfoodCell.dataset.beginning) || 0;
         const sabNonfood = sheetNonfoodExclTax + sabNonfoodBeginning;
-        sabNonfoodCell.textContent = '$' + sabNonfood.toFixed(2);
+        sabNonfoodCell.textContent = money(sabNonfood);
 
-        document.getElementById('sheet-and-beginning-all-total').textContent = '$' + (sabFood + sabNonfood).toFixed(2);
+        document.getElementById('sheet-and-beginning-all-total').textContent = money(sabFood + sabNonfood);
 
         const cfwFoodCell = document.getElementById('cost-for-week-food-total');
         const cfwFoodBeginning = parseFloat(cfwFoodCell.dataset.beginning) || 0;
         const cfwFoodEnding = parseFloat(cfwFoodCell.dataset.ending) || 0;
         const cfwFood = grandFoodTotal + cfwFoodBeginning - cfwFoodEnding;
-        cfwFoodCell.innerHTML = '<strong>$' + cfwFood.toFixed(2) + '</strong>';
+        cfwFoodCell.innerHTML = '<strong>' + money(cfwFood) + '</strong>';
 
         const cfwNonfoodCell = document.getElementById('cost-for-week-nonfood-total');
         const cfwNonfoodBeginning = parseFloat(cfwNonfoodCell.dataset.beginning) || 0;
         const cfwNonfoodEnding = parseFloat(cfwNonfoodCell.dataset.ending) || 0;
         const cfwNonfood = sheetNonfoodExclTax + cfwNonfoodBeginning - cfwNonfoodEnding;
-        cfwNonfoodCell.innerHTML = '<strong>$' + cfwNonfood.toFixed(2) + '</strong>';
+        cfwNonfoodCell.innerHTML = '<strong>' + money(cfwNonfood) + '</strong>';
 
-        document.getElementById('cost-for-week-all-total').innerHTML = '<strong>$' + (cfwFood + cfwNonfood).toFixed(2) + '</strong>';
+        document.getElementById('cost-for-week-all-total').innerHTML = '<strong>' + money(cfwFood + cfwNonfood) + '</strong>';
     }
 
     document.querySelectorAll('.invoice_row').forEach(function (tr) {

@@ -36,4 +36,10 @@
   {% else %}
     <a href="{% url 'wor_week' week.pk %}" class="tab-link{% if active_report_tab == 'wor' %} active-tab active-link{% endif %}">WOR</a>
   {% endif %}
+
+  {% if week.status == 0 %}
+    <a href="{% url 'edit_history' %}" class="tab-link{% if active_report_tab == 'history' %} active-tab active-link{% endif %}">History</a>
+  {% else %}
+    <a href="{% url 'edit_history_week' week.pk %}" class="tab-link{% if active_report_tab == 'history' %} active-tab active-link{% endif %}">History</a>
+  {% endif %}
 </div>

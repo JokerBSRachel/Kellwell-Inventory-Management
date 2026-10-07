@@ -1,7 +1,51 @@
 from datetime import timedelta
+from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum, F
-from .models import Week, CountyItem, Inventory, CountyMeal, DailySale, Employee, WeeklyPayroll
+from .models import Week, CountyItem, Inventory, CountyMeal, DailySale, Employee, WeeklyPayroll, EditLog
+
+
+def _actor_label(user, county):
+    """Who to show in the history. Mirrors get_user_access's precedence."""
+    if user.is_superuser or user.is_staff:
+        return f"{user.get_username()} (developer)"
+    if hasattr(user, "manager_profile"):
+        return f"{user.manager_profile.manager_name} (manager)"
+    return f"{county} login"
+
+
+def _fmt(value):
+    if value is None:
+        return ""
+    if isinstance(value, Decimal):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def log_edit(user, county, week, page, action, description, field_name="", old="", new="", collapse_minutes=0):
+    """Writes one history line. collapse_minutes > 0 skips the write when the
+    same user already logged the same action on the same thing that recently
+    (used for drag-and-drop reordering, which fires on every drop)."""
+    if collapse_minutes:
+        cutoff = timezone.now() - timedelta(minutes=collapse_minutes)
+        if EditLog.objects.filter(
+            user=user, week=week, action=action, description=description, created_at__gte=cutoff
+        ).exists():
+            return
+    EditLog.objects.create(
+        user=user, user_label=_actor_label(user, county), county=county, week=week,
+        page=page, action=action, description=description[:255], field_name=field_name,
+        old_value=_fmt(old), new_value=_fmt(new),
+    )
+
+
+def log_field_changes(user, county, week, page, description, changes):
+    """changes is a list of (field_label, old, new). Only entries whose values
+    actually differ are logged, so re-saving an untouched sheet writes nothing."""
+    for field_name, old, new in changes:
+        if old == new:
+            continue
+        log_edit(user, county, week, page, "edit", description, field_name, old, new)
 
 
 def round_to(value, decimal_places):
@@ -173,6 +217,9 @@ def rollover_county_week(county):
             end_inventory=0,
             end_received_1=0,
             end_received_2=0,
+            # Carry the previous week's order forward; None (no old row) falls
+            # through to Inventory.save(), which puts it at the end.
+            sort_order=old_inventory.sort_order if old_inventory else None,
         )
 
     county_meals = CountyMeal.objects.filter(county=county, is_active=True)

@@ -1,0 +1,44 @@
+{% extends "inventory_system/base.html" %}
+
+{% block content %}
+<div class="header">
+    <h1>{{ county }} Edit History</h1>
+    <h3>Week ending {{ week.end_date|date:"m/d/y" }}</h3>
+</div>
+
+<p>
+    Show:
+    <a href="?"{% if not page_filter %} style="font-weight: bold;"{% endif %}>All</a>
+    {% for key, label in page_choices %}
+    | <a href="?page={{ key }}"{% if page_filter == key %} style="font-weight: bold;"{% endif %}>{{ label }}</a>
+    {% endfor %}
+</p>
+
+{% if logs %}
+<table cellpadding="6">
+    <tr>
+        <th>When</th>
+        <th>Who</th>
+        <th>Page</th>
+        <th>What</th>
+        <th>Change</th>
+    </tr>
+    {% for log in logs %}
+    <tr>
+        <td>{{ log.created_at|date:"m/d/y g:i A T" }}</td>
+        <td>{{ log.user_label }}</td>
+        <td>{{ log.get_page_display }}</td>
+        <td>{{ log.description }}</td>
+        <td>{{ log.field_name }}{% if log.old_value and log.new_value %}: {{ log.old_value }} → {{ log.new_value }}{% elif log.new_value %}: {{ log.new_value }}{% elif log.old_value %} (was {{ log.old_value }}){% endif %}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% if total > shown_limit %}
+<p>Showing the latest {{ shown_limit }} of {{ total }} entries.</p>
+{% endif %}
+{% else %}
+<p>No edits recorded for this week yet.</p>
+{% endif %}
+
+{% include "inventory_system/_page_tabs.html" %}
+{% endblock %}

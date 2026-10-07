@@ -55,6 +55,13 @@
         <a href="{% url 'wor_week' w.pk %}"{% if active_report_tab == 'wor' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>WOR</a>
         {% endif %}
     </li>
+    <li>
+        {% if w.status == 0 %}
+        <a href="{% url 'edit_history' %}"{% if active_report_tab == 'history' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>History</a>
+        {% else %}
+        <a href="{% url 'edit_history_week' w.pk %}"{% if active_report_tab == 'history' and w.pk == nav_viewed_week_id %} class="active-link"{% endif %}>History</a>
+        {% endif %}
+    </li>
     {% endif %}
 </ul>
 </details>
